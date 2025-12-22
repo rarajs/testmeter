@@ -5,12 +5,61 @@ const { DateTime } = require("luxon");
 
 const app = express();
 app.use(express.json({ limit: "1mb" }));
-// ===== BASIC AUTH (test access) =====
+
+// ====== CONFIG ======
+const PORT = process.env.PORT ? Number(process.env.PORT) : 8080;
+const TZ = "Europe/Riga";
+
+// Admin key for API export via Bearer token (keep in Railway Variables)
+const ADMIN_KEY = process.env.ADMIN_KEY || "";
+
+// Test mode / production window
+const ENFORCE_WINDOW = process.env.ENFORCE_WINDOW === "1";
+
+// ====== PATHS ======
+function resolvePath(...candidates) {
+  for (const p of candidates) {
+    try {
+      if (fs.existsSync(p)) return p;
+    } catch (_) {}
+  }
+  return null;
+}
+
+const ROOT_DIR = __dirname;
+
+const DATA_DIR =
+  resolvePath(path.join(ROOT_DIR, "data"), path.join(ROOT_DIR, "Data")) ||
+  path.join(ROOT_DIR, "data");
+
+const PUBLIC_DIR =
+  resolvePath(path.join(ROOT_DIR, "public"), path.join(ROOT_DIR, "Public")) ||
+  path.join(ROOT_DIR, "public");
+
+const EXPORT_DIR = path.join(ROOT_DIR, "exports");
+
+// Ensure dirs exist
+if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+if (!fs.existsSync(EXPORT_DIR)) fs.mkdirSync(EXPORT_DIR, { recursive: true });
+
+const ADDRESSES_CSV =
+  resolvePath(
+    path.join(DATA_DIR, "adreses.csv"),
+    path.join(ROOT_DIR, "data", "adreses.csv"),
+    path.join(ROOT_DIR, "Data", "adreses.csv")
+  ) || path.join(DATA_DIR, "adreses.csv");
+
+const SUBMISSIONS_FILE = path.join(DATA_DIR, "submissions.ndjson");
+
+// ====== AUTH #1: BASIC AUTH for whole app (except /admin/*) ======
 const BASIC_AUTH_USER = process.env.BASIC_AUTH_USER;
 const BASIC_AUTH_PASS = process.env.BASIC_AUTH_PASS;
 
 if (BASIC_AUTH_USER && BASIC_AUTH_PASS) {
   app.use((req, res, next) => {
+    // Let /admin/* have its own separate Basic Auth popup
+    if (req.path.startsWith("/admin")) return next();
+
     const auth = req.headers.authorization;
 
     if (!auth || !auth.startsWith("Basic ")) {
@@ -31,60 +80,34 @@ if (BASIC_AUTH_USER && BASIC_AUTH_PASS) {
     next();
   });
 }
-// ====== CONFIG ======
-const PORT = process.env.PORT ? Number(process.env.PORT) : 8080;
 
-// TEST: default key (easy). PROD: set this via environment.
-const ADMIN_KEY = process.env.ADMIN_KEY || "JurmalasUd3ns2026!";
+// ====== AUTH #2: ADMIN BASIC AUTH only for /admin/* ======
+const ADMIN_USER = process.env.ADMIN_USER;
+const ADMIN_PASS = process.env.ADMIN_PASS;
 
-// TEST: allow submits anytime. PROD: set ENFORCE_WINDOW=1 to enforce 25..end.
-const ENFORCE_WINDOW = process.env.ENFORCE_WINDOW === "1";
-
-const TZ = "Europe/Riga";
-
-/**
- * Resolve a path by checking multiple candidate locations.
- * This prevents "works locally but crashes on Railway/Linux" issues
- * when folder names differ by case (Data vs data, Public vs public).
- */
-function resolvePath(...candidates) {
-  for (const p of candidates) {
-    try {
-      if (fs.existsSync(p)) return p;
-    } catch (_) {}
+function adminAuth(req, res, next) {
+  if (!ADMIN_USER || !ADMIN_PASS) {
+    return res.status(500).send("Admin auth not configured");
   }
-  return null;
+
+  const header = req.headers.authorization || "";
+  if (!header.startsWith("Basic ")) {
+    res.setHeader("WWW-Authenticate", 'Basic realm="testmeter-admin"');
+    return res.status(401).end();
+  }
+
+  const decoded = Buffer.from(header.slice(6), "base64").toString();
+  const sep = decoded.indexOf(":");
+  const user = decoded.slice(0, sep);
+  const pass = decoded.slice(sep + 1);
+
+  if (user !== ADMIN_USER || pass !== ADMIN_PASS) {
+    res.setHeader("WWW-Authenticate", 'Basic realm="testmeter-admin"');
+    return res.status(401).end();
+  }
+
+  next();
 }
-
-const ROOT_DIR = __dirname;
-
-// Prefer lowercase folder names (Linux-friendly)
-const DATA_DIR = resolvePath(
-  path.join(ROOT_DIR, "data"),
-  path.join(ROOT_DIR, "Data")
-) || path.join(ROOT_DIR, "data");
-
-const PUBLIC_DIR = resolvePath(
-  path.join(ROOT_DIR, "public"),
-  path.join(ROOT_DIR, "Public")
-) || path.join(ROOT_DIR, "public");
-
-const EXPORT_DIR = path.join(ROOT_DIR, "exports");
-
-// Ensure dirs exist (so we don't crash on first boot)
-if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-if (!fs.existsSync(EXPORT_DIR)) fs.mkdirSync(EXPORT_DIR, { recursive: true });
-
-// Private CSV behind server
-const ADDRESSES_CSV =
-  resolvePath(
-    path.join(DATA_DIR, "adreses.csv"),
-    path.join(ROOT_DIR, "data", "adreses.csv"),
-    path.join(ROOT_DIR, "Data", "adreses.csv")
-  ) || path.join(DATA_DIR, "adreses.csv");
-
-// Store submissions under data/ (more predictable on hosts)
-const SUBMISSIONS_FILE = path.join(DATA_DIR, "submissions.ndjson");
 
 // ====== Submission window (for PROD) ======
 function getSubmissionWindow(dt = DateTime.now().setZone(TZ)) {
@@ -117,7 +140,7 @@ function detectDelimiter(line) {
   return semis > commas ? ";" : ",";
 }
 
-// Minimal CSV parser (supports delimiter + quotes)
+// Minimal CSV parser (delimiter + quotes)
 function parseCsv(text) {
   const lines = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
   const delim = detectDelimiter(lines[0] || "");
@@ -162,7 +185,7 @@ function parseCsv(text) {
   return rows;
 }
 
-// ====== Load addresses into memory (server-side only) ======
+// ====== Load addresses into memory ======
 let ADDRESS_LIST = []; // [{ text, fold }]
 function loadAddresses() {
   if (!fs.existsSync(ADDRESSES_CSV)) {
@@ -199,7 +222,7 @@ function loadAddresses() {
   console.log(`ADDRESSES_CSV: ${ADDRESSES_CSV}`);
 }
 
-// Address scoring (supports "num first" smart behavior)
+// Address scoring
 function parseStreetHouse(addrFold) {
   const firstPart = (addrFold.split(",")[0] || addrFold).trim();
   const parts = firstPart.split(/\s+/).filter(Boolean);
@@ -366,7 +389,6 @@ app.get("/api/addresses", (req, res) => {
 
 // Submit readings
 app.post("/api/submit", (req, res) => {
-  // TEST mode: allow anytime. PROD: set ENFORCE_WINDOW=1
   if (ENFORCE_WINDOW) {
     const now = DateTime.now().setZone(TZ);
     if (!isWindowOpen(now)) {
@@ -426,33 +448,15 @@ app.post("/api/submit", (req, res) => {
   res.json({ ok: true });
 });
 
-// Manual export (protected)
-app.get("/api/export.csv", (req, res) => {
-if (ADMIN_KEY) {
-  const auth = req.headers.authorization || "";
-
-  if (!auth.startsWith("Bearer ")) {
-    return res.status(401).send("Unauthorized");
-  }
-
-  const token = auth.slice(7).trim();
-  if (token !== ADMIN_KEY) {
-    return res.status(401).send("Unauthorized");
-  }
-}
+// ====== EXPORT HELPERS ======
+function buildBillingExportCsv() {
+  let out = "abonenta_numurs,adrese,skaititaja_numurs,radijums,submitted_at\n";
 
   if (!fs.existsSync(SUBMISSIONS_FILE)) {
-    res.setHeader("Content-Type", "text/csv; charset=utf-8");
-    res.setHeader("Content-Disposition", 'attachment; filename="billing_export.csv"');
-    return res.send("abonenta_numurs,adrese,skaititaja_numurs,radijums,submitted_at\n");
+    return out;
   }
 
   const lines = fs.readFileSync(SUBMISSIONS_FILE, "utf8").split("\n").filter(Boolean);
-
-  res.setHeader("Content-Type", "text/csv; charset=utf-8");
-  res.setHeader("Content-Disposition", 'attachment; filename="billing_export.csv"');
-
-  let out = "abonenta_numurs,adrese,skaititaja_numurs,radijums,submitted_at\n";
 
   for (const l of lines) {
     let rec;
@@ -461,6 +465,7 @@ if (ADMIN_KEY) {
     } catch {
       continue;
     }
+
     const submitted_at = rec.submitted_at || "";
     const abon = rec.abonenta_numurs || "";
     const arr = Array.isArray(rec.lines) ? rec.lines : [];
@@ -472,7 +477,31 @@ if (ADMIN_KEY) {
       out += `"${abon}","${adrese}","${meter}","${reading}","${submitted_at}"\n`;
     }
   }
+  return out;
+}
 
+// API export (Bearer token)
+app.get("/api/export.csv", (req, res) => {
+  if (ADMIN_KEY) {
+    const auth = req.headers.authorization || "";
+    if (!auth.startsWith("Bearer ")) return res.status(401).send("Unauthorized");
+    const token = auth.slice(7).trim();
+    if (token !== ADMIN_KEY) return res.status(401).send("Unauthorized");
+  } else {
+    return res.status(500).send("ADMIN_KEY not configured");
+  }
+
+  const out = buildBillingExportCsv();
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader("Content-Disposition", 'attachment; filename="billing_export.csv"');
+  res.send(out);
+});
+
+// Admin export (Browser download, Admin popup)
+app.get("/admin/export.csv", adminAuth, (req, res) => {
+  const out = buildBillingExportCsv();
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader("Content-Disposition", 'attachment; filename="billing_export.csv"');
   res.send(out);
 });
 
@@ -489,8 +518,8 @@ try {
 
 app.listen(PORT, () => {
   console.log(`testmeter running: http://localhost:${PORT}`);
-  console.log(`ADMIN_KEY (test): ${ADMIN_KEY ? "[set]" : "[empty]"}`);
   console.log(`ENFORCE_WINDOW: ${ENFORCE_WINDOW ? "ON" : "OFF (test mode)"}`);
-  console.log(`export CSV: http://localhost:${PORT}/api/export.csv?key=${encodeURIComponent(ADMIN_KEY)}`);
+  console.log(`admin export: /admin/export.csv (requires ADMIN_USER/ADMIN_PASS)`);
+  console.log(`api export: /api/export.csv (requires Authorization: Bearer ADMIN_KEY)`);
   scheduleNextAutoExport();
 });
