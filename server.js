@@ -5,7 +5,32 @@ const { DateTime } = require("luxon");
 
 const app = express();
 app.use(express.json({ limit: "1mb" }));
+// ===== BASIC AUTH (test access) =====
+const BASIC_AUTH_USER = process.env.BASIC_AUTH_USER;
+const BASIC_AUTH_PASS = process.env.BASIC_AUTH_PASS;
 
+if (BASIC_AUTH_USER && BASIC_AUTH_PASS) {
+  app.use((req, res, next) => {
+    const auth = req.headers.authorization;
+
+    if (!auth || !auth.startsWith("Basic ")) {
+      res.setHeader("WWW-Authenticate", 'Basic realm="testmeter"');
+      return res.status(401).end();
+    }
+
+    const decoded = Buffer.from(auth.split(" ")[1], "base64").toString();
+    const sep = decoded.indexOf(":");
+    const user = decoded.slice(0, sep);
+    const pass = decoded.slice(sep + 1);
+
+    if (user !== BASIC_AUTH_USER || pass !== BASIC_AUTH_PASS) {
+      res.setHeader("WWW-Authenticate", 'Basic realm="testmeter"');
+      return res.status(401).end();
+    }
+
+    next();
+  });
+}
 // ====== CONFIG ======
 const PORT = process.env.PORT ? Number(process.env.PORT) : 8080;
 
