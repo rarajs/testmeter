@@ -427,11 +427,18 @@ app.post("/api/submit", (req, res) => {
 });
 
 // Manual export (protected)
-app.get("/api/export.csv", (req, res) => {
-  if (ADMIN_KEY) {
-    const key = (req.query.key || "").toString();
-    if (key !== ADMIN_KEY) return res.status(401).send("Unauthorized");
+if (ADMIN_KEY) {
+  const auth = req.headers.authorization || "";
+
+  if (!auth.startsWith("Bearer ")) {
+    return res.status(401).send("Unauthorized");
   }
+
+  const token = auth.slice(7).trim();
+  if (token !== ADMIN_KEY) {
+    return res.status(401).send("Unauthorized");
+  }
+}
 
   if (!fs.existsSync(SUBMISSIONS_FILE)) {
     res.setHeader("Content-Type", "text/csv; charset=utf-8");
