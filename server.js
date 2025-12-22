@@ -427,6 +427,7 @@ app.post("/api/submit", (req, res) => {
 });
 
 // Manual export (protected)
+app.get("/api/export.csv", (req, res) => {
 if (ADMIN_KEY) {
   const auth = req.headers.authorization || "";
 
