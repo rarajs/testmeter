@@ -134,13 +134,7 @@
     }
     .noticeBox.show{ display:block; }
 
-    /* =========================
-       ABONENTA KODS (8 boxes)
-       Desktop: šauri
-       Mobile: elastīgi
-       ========================= */
-
-    /* Desktop / default: šauri */
+    /* Abonenta kods (8 boxes) */
     .code-boxes{
       display:grid;
       grid-template-columns: repeat(8, 30px);
@@ -161,13 +155,11 @@
       letter-spacing:.2px;
     }
 
-    /* pelēkais hint pirmajiem 3 (placeholder) */
     .code-boxes input.hint::placeholder{
       color:#9aa3ad;
       font-weight:900;
     }
 
-    /* Mobile: lai neizlien ārā */
     @media (max-width: 520px){
       .code-boxes{
         grid-template-columns: repeat(8, minmax(0, 1fr));
@@ -213,6 +205,7 @@
       gap:12px;
     }
 
+    /* Mobile default: stack */
     .meter-row{
       display:grid;
       grid-template-columns: 1fr;
@@ -224,44 +217,71 @@
       background:#fbfcfe;
     }
 
-    /* Delete button = smuks sarkans krustiņš */
+    /* Desktop: vienmēr 3 kolonnas, lai NEKAS nenobīdās */
+    @media (min-width: 760px){
+      .meter-row{
+        grid-template-columns: 1fr 1fr 56px;   /* <- vieta dzēšanai vienmēr */
+        align-items:end;
+        padding:14px;
+      }
+    }
+
+    /* Delete meter button */
     .del-btn{
-      width:44px;
-      height:44px;
-      min-width:44px;
-      min-height:44px;
       border-radius:12px;
       border:2px solid #f0c9cf;
       background:#fff;
       color:#b00020;
       cursor:pointer;
       font-weight:1000;
-      padding:0;
-      display:flex;
-      align-items:center;
-      justify-content:center;
-      line-height:1;
-      justify-self:end;
-      align-self:end;
+      min-height:46px;
     }
-    .del-btn::before{
-      content:"×";
-      font-size:28px;
-      transform: translateY(-1px);
+
+    /* Desktop: ikona (×) */
+    @media (min-width: 760px){
+      .del-btn{
+        width:44px;
+        height:44px;
+        min-width:44px;
+        min-height:44px;
+        padding:0;
+        display:flex;
+        align-items:center;
+        justify-content:center;
+        line-height:1;
+        justify-self:end;
+      }
+      .del-btn::before{
+        content:"×";
+        font-size:28px;
+        transform: translateY(-1px);
+      }
     }
+
+    /* Mobile: teksts zem skaitītāja */
+    @media (max-width: 759px){
+      .del-btn{
+        width:100%;
+      }
+      .del-btn::before{
+        content:"Dzēst skaitītāju";
+        font-size:16px;
+      }
+    }
+
+    /* Hidden:
+       - Desktop: saglabā vietu (lai rindas ir vienādas) -> visibility hidden
+       - Mobile: nerādām vispār (lai nav tukšas vietas) -> display none
+    */
+    .del-btn.hidden{ visibility:hidden; pointer-events:none; }
+    @media (max-width: 759px){
+      .del-btn.hidden{ display:none; }
+    }
+
     .del-btn:hover{ background:#fff5f7; }
     .del-btn:focus{
       outline:none;
       box-shadow: 0 0 0 4px rgba(176,0,32,.12);
-    }
-    .del-btn.hidden{ display:none; }
-
-    @media (min-width: 760px){
-      .meter-row{
-        grid-template-columns: 1fr 1fr auto;
-        align-items:end;
-        padding:14px;
-      }
     }
 
     .btn-row{
@@ -279,7 +299,21 @@
       cursor:pointer;
       font-weight:1000;
       min-height:46px;
+      color:#111;
     }
+
+    /* SARKANA poga dzēšanai (adreses dzēšana) */
+    .btn-danger{
+      border-radius:14px;
+      border:2px solid #f0c9cf;
+      background:#fff;
+      padding:12px 14px;
+      cursor:pointer;
+      font-weight:1000;
+      min-height:46px;
+      color:#b00020;
+    }
+    .btn-danger:hover{ background:#fff5f7; }
 
     .btn-add-meter{
       border-radius:14px;
@@ -473,7 +507,6 @@
       for (let i = 0; i < digits.length && (startIndex + i) < 8; i++) {
         host.children[startIndex + i].value = digits[i];
       }
-      // fokusē uz nākamo tukšo vai pēdējo
       let focusIndex = 7;
       for (let k = 0; k < 8; k++) {
         if (!host.children[k].value) { focusIndex = k; break; }
@@ -506,7 +539,7 @@
         if (e.key === "Backspace" && !inp.value && i > 0) host.children[i-1].focus();
       });
 
-      // Paste: vienmēr aizpilda no 1. lauka
+      // Paste: vienmēr aizpilda no 1. rūtiņas
       inp.addEventListener("paste", (e) => {
         e.preventDefault();
         const text = (e.clipboardData || window.clipboardData).getData("text");
@@ -580,7 +613,6 @@
     });
   }
 
-  // Addresses + meters UI
   function renumberAddresses() {
     const blocks = $$(".address-block", $("#addresses"));
     blocks.forEach((block, i) => {
@@ -695,7 +727,7 @@
 
     const removeAddressBtn = el("button", {
       type:"button",
-      class:"btn-secondary delete-address-btn",
+      class:"btn-danger delete-address-btn",
       text:"Dzēst adresi",
       onclick: () => {
         const all = $$(".address-block", $("#addresses"));
