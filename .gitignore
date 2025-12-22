@@ -2,7 +2,7 @@ node_modules/
 .env
 *.log
 
-# runtime data / exports
+# runtime data
 submissions.ndjson
 exports/
-*.csv
+Data/
