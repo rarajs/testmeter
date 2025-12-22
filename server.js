@@ -17,19 +17,54 @@ const ENFORCE_WINDOW = process.env.ENFORCE_WINDOW === "1";
 
 const TZ = "Europe/Riga";
 
-const DATA_DIR = path.join(__dirname, "data");
-const PUBLIC_DIR = path.join(__dirname, "public");
-const EXPORT_DIR = path.join(__dirname, "exports");
+/**
+ * Resolve a path by checking multiple candidate locations.
+ * This prevents "works locally but crashes on Railway/Linux" issues
+ * when folder names differ by case (Data vs data, Public vs public).
+ */
+function resolvePath(...candidates) {
+  for (const p of candidates) {
+    try {
+      if (fs.existsSync(p)) return p;
+    } catch (_) {}
+  }
+  return null;
+}
 
-const ADDRESSES_CSV = path.join(DATA_DIR, "adreses.csv");  // private
-const SUBMISSIONS_FILE = path.join(__dirname, "submissions.ndjson");
+const ROOT_DIR = __dirname;
 
+// Prefer lowercase folder names (Linux-friendly)
+const DATA_DIR = resolvePath(
+  path.join(ROOT_DIR, "data"),
+  path.join(ROOT_DIR, "Data")
+) || path.join(ROOT_DIR, "data");
+
+const PUBLIC_DIR = resolvePath(
+  path.join(ROOT_DIR, "public"),
+  path.join(ROOT_DIR, "Public")
+) || path.join(ROOT_DIR, "public");
+
+const EXPORT_DIR = path.join(ROOT_DIR, "exports");
+
+// Ensure dirs exist (so we don't crash on first boot)
+if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 if (!fs.existsSync(EXPORT_DIR)) fs.mkdirSync(EXPORT_DIR, { recursive: true });
+
+// Private CSV behind server
+const ADDRESSES_CSV =
+  resolvePath(
+    path.join(DATA_DIR, "adreses.csv"),
+    path.join(ROOT_DIR, "data", "adreses.csv"),
+    path.join(ROOT_DIR, "Data", "adreses.csv")
+  ) || path.join(DATA_DIR, "adreses.csv");
+
+// Store submissions under data/ (more predictable on hosts)
+const SUBMISSIONS_FILE = path.join(DATA_DIR, "submissions.ndjson");
 
 // ====== Submission window (for PROD) ======
 function getSubmissionWindow(dt = DateTime.now().setZone(TZ)) {
   const start = dt.startOf("month").plus({ days: 24 }); // 25th 00:00
-  const end = dt.endOf("month");                        // last day 23:59:59.999
+  const end = dt.endOf("month"); // last day 23:59:59.999
   return { start, end };
 }
 function isWindowOpen(dt = DateTime.now().setZone(TZ)) {
@@ -67,16 +102,24 @@ function parseCsv(text) {
   let row = [];
   let inQ = false;
 
-  const pushCell = () => { row.push(cur); cur = ""; };
-  const pushRow = () => { rows.push(row); row = []; };
+  const pushCell = () => {
+    row.push(cur);
+    cur = "";
+  };
+  const pushRow = () => {
+    rows.push(row);
+    row = [];
+  };
 
   for (let li = 0; li < lines.length; li++) {
     const line = lines[li];
     for (let i = 0; i < line.length; i++) {
       const c = line[i];
       if (c === '"') {
-        if (inQ && line[i + 1] === '"') { cur += '"'; i++; }
-        else inQ = !inQ;
+        if (inQ && line[i + 1] === '"') {
+          cur += '"';
+          i++;
+        } else inQ = !inQ;
       } else if (c === delim && !inQ) {
         pushCell();
       } else {
@@ -97,11 +140,18 @@ function parseCsv(text) {
 // ====== Load addresses into memory (server-side only) ======
 let ADDRESS_LIST = []; // [{ text, fold }]
 function loadAddresses() {
+  if (!fs.existsSync(ADDRESSES_CSV)) {
+    throw new Error(
+      `adreses.csv not found. Looked for: ${ADDRESSES_CSV}\n` +
+        `Tip: ensure repo contains data/adreses.csv (lowercase 'data' for Railway/Linux).`
+    );
+  }
+
   const raw = fs.readFileSync(ADDRESSES_CSV, "utf8");
   const rows = parseCsv(raw);
   if (!rows.length) throw new Error("adreses.csv is empty");
 
-  const header = rows[0].map(x => (x || "").trim());
+  const header = rows[0].map((x) => (x || "").trim());
   const idx = header.indexOf("STD");
   if (idx === -1) throw new Error("adreses.csv must contain column 'STD'");
 
@@ -121,6 +171,7 @@ function loadAddresses() {
   ADDRESS_LIST = out;
 
   console.log(`Loaded addresses: ${ADDRESS_LIST.length}`);
+  console.log(`ADDRESSES_CSV: ${ADDRESSES_CSV}`);
 }
 
 // Address scoring (supports "num first" smart behavior)
@@ -139,8 +190,8 @@ function parseStreetHouse(addrFold) {
   }
   return {
     streetText: streetTokens.join(" "),
-    streetFirst: (streetTokens[0] || ""),
-    houseToken
+    streetFirst: streetTokens[0] || "",
+    houseToken,
   };
 }
 
@@ -184,8 +235,8 @@ function searchAddresses(q, limit = 12) {
     const s = scoreMatch(qTokens, a.fold);
     if (s >= 0) hits.push({ text: a.text, score: s });
   }
-  hits.sort((x, y) => (y.score - x.score) || x.text.localeCompare(y.text, "lv"));
-  return hits.slice(0, limit).map(h => h.text);
+  hits.sort((x, y) => y.score - x.score || x.text.localeCompare(y.text, "lv"));
+  return hits.slice(0, limit).map((h) => h.text);
 }
 
 // ====== AUTO EXPORT (monthly) ======
@@ -210,7 +261,11 @@ function buildCsvForMonth(monthYYYYMM) {
 
   for (const l of lines) {
     let rec;
-    try { rec = JSON.parse(l); } catch { continue; }
+    try {
+      rec = JSON.parse(l);
+    } catch {
+      continue;
+    }
     if (!rec?.submitted_at || !inMonth(rec.submitted_at)) continue;
 
     const submitted_at = rec.submitted_at || "";
@@ -218,9 +273,9 @@ function buildCsvForMonth(monthYYYYMM) {
     const arr = Array.isArray(rec.lines) ? rec.lines : [];
 
     for (const item of arr) {
-      const adrese = (item.adrese || "").toString().replace(/"/g,'""');
-      const meter = (item.skaititaja_numurs || "").toString().replace(/"/g,'""');
-      const reading = (item.radijums ?? "").toString().replace(/"/g,'""');
+      const adrese = (item.adrese || "").toString().replace(/"/g, '""');
+      const meter = (item.skaititaja_numurs || "").toString().replace(/"/g, '""');
+      const reading = (item.radijums ?? "").toString().replace(/"/g, '""');
 
       out += `"${abon}","${adrese}","${meter}","${reading}","${submitted_at}"\n`;
     }
@@ -245,7 +300,7 @@ function scheduleNextAutoExport() {
   const runAt = now.endOf("month").plus({ seconds: 10 });
 
   const ms = Math.max(1000, runAt.toMillis() - now.toMillis());
-  console.log(`[AUTO-EXPORT] Next run at ${runAt.toISO()} (${Math.round(ms/1000)}s)`);
+  console.log(`[AUTO-EXPORT] Next run at ${runAt.toISO()} (${Math.round(ms / 1000)}s)`);
 
   exportTimer = setTimeout(() => {
     try {
@@ -270,7 +325,7 @@ app.get("/api/window", (req, res) => {
     start: start.toISO(),
     end: end.toISO(),
     is_open: isWindowOpen(now),
-    enforce: ENFORCE_WINDOW
+    enforce: ENFORCE_WINDOW,
   });
 });
 
@@ -296,7 +351,7 @@ app.post("/api/submit", (req, res) => {
         error: "Submission window closed",
         tz: TZ,
         window_start: start.toISO(),
-        window_end: end.toISO()
+        window_end: end.toISO(),
       });
     }
   }
@@ -306,10 +361,10 @@ app.post("/api/submit", (req, res) => {
   const lines = Array.isArray(body.lines) ? body.lines : [];
 
   if (!/^\d{8}$/.test(abon)) {
-    return res.status(400).json({ ok:false, error:"Invalid abonenta_numurs (must be 8 digits)" });
+    return res.status(400).json({ ok: false, error: "Invalid abonenta_numurs (must be 8 digits)" });
   }
   if (!lines.length) {
-    return res.status(400).json({ ok:false, error:"No lines provided" });
+    return res.status(400).json({ ok: false, error: "No lines provided" });
   }
 
   const cleaned = [];
@@ -318,12 +373,15 @@ app.post("/api/submit", (req, res) => {
     const meter = (line.skaititaja_numurs || "").toString().trim();
     const readingRaw = (line.radijums ?? "").toString().trim();
 
-    if (!adrese) return res.status(400).json({ ok:false, error:`Line ${i+1}: missing adrese` });
-    if (!/^\d+$/.test(meter)) return res.status(400).json({ ok:false, error:`Line ${i+1}: skaititaja_numurs must be digits` });
-    if (!/^\d+$/.test(readingRaw)) return res.status(400).json({ ok:false, error:`Line ${i+1}: radijums must be an integer` });
+    if (!adrese) return res.status(400).json({ ok: false, error: `Line ${i + 1}: missing adrese` });
+    if (!/^\d+$/.test(meter))
+      return res.status(400).json({ ok: false, error: `Line ${i + 1}: skaititaja_numurs must be digits` });
+    if (!/^\d+$/.test(readingRaw))
+      return res.status(400).json({ ok: false, error: `Line ${i + 1}: radijums must be an integer` });
 
     const reading = Number(readingRaw);
-    if (!Number.isFinite(reading)) return res.status(400).json({ ok:false, error:`Line ${i+1}: invalid radijums` });
+    if (!Number.isFinite(reading))
+      return res.status(400).json({ ok: false, error: `Line ${i + 1}: invalid radijums` });
 
     cleaned.push({ adrese, skaititaja_numurs: meter, radijums: reading });
   }
@@ -331,13 +389,16 @@ app.post("/api/submit", (req, res) => {
   const record = {
     submitted_at: new Date().toISOString(),
     abonenta_numurs: abon,
-    ip: req.headers["x-forwarded-for"]?.toString().split(",")[0]?.trim() || req.socket.remoteAddress || "",
+    ip:
+      req.headers["x-forwarded-for"]?.toString().split(",")[0]?.trim() ||
+      req.socket.remoteAddress ||
+      "",
     user_agent: req.headers["user-agent"] || "",
-    lines: cleaned
+    lines: cleaned,
   };
 
   fs.appendFileSync(SUBMISSIONS_FILE, JSON.stringify(record) + "\n", "utf8");
-  res.json({ ok:true });
+  res.json({ ok: true });
 });
 
 // Manual export (protected)
@@ -362,15 +423,19 @@ app.get("/api/export.csv", (req, res) => {
 
   for (const l of lines) {
     let rec;
-    try { rec = JSON.parse(l); } catch { continue; }
+    try {
+      rec = JSON.parse(l);
+    } catch {
+      continue;
+    }
     const submitted_at = rec.submitted_at || "";
     const abon = rec.abonenta_numurs || "";
     const arr = Array.isArray(rec.lines) ? rec.lines : [];
 
     for (const item of arr) {
-      const adrese = (item.adrese || "").toString().replace(/"/g,'""');
-      const meter = (item.skaititaja_numurs || "").toString().replace(/"/g,'""');
-      const reading = (item.radijums ?? "").toString().replace(/"/g,'""');
+      const adrese = (item.adrese || "").toString().replace(/"/g, '""');
+      const meter = (item.skaititaja_numurs || "").toString().replace(/"/g, '""');
+      const reading = (item.radijums ?? "").toString().replace(/"/g, '""');
       out += `"${abon}","${adrese}","${meter}","${reading}","${submitted_at}"\n`;
     }
   }
