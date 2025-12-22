@@ -134,35 +134,50 @@
     }
     .noticeBox.show{ display:block; }
 
-    /* 8 kvadrātiņi vienā rindā, elastīgi (lai neizlien ārā iPhone) */
+    /* =========================
+       ABONENTA KODS (8 boxes)
+       Desktop: šauri
+       Mobile: elastīgi
+       ========================= */
+
+    /* Desktop / default: šauri */
     .code-boxes{
       display:grid;
-      grid-template-columns: repeat(8, minmax(0, 1fr));
+      grid-template-columns: repeat(8, 30px);
       gap: 8px;
       padding: 4px 0 2px;
-      width: 100%;
+      width: fit-content;
+      max-width: 100%;
     }
 
     .code-boxes input{
-      width:100%;
+      width:30px;
       text-align:center;
       font-weight:1000;
-      border-radius:14px;
+      border-radius:12px;
       padding:0;
-      min-height:54px;
-      font-size:20px;
-      letter-spacing:.5px;
+      min-height:44px;
+      font-size:18px;
+      letter-spacing:.2px;
     }
 
-    @media (max-width: 420px){
-      .code-boxes{ gap: 6px; }
-      .code-boxes input{ min-height:48px; font-size:18px; }
-    }
-
-    /* pelēkais hint pirmajiem 3 */
+    /* pelēkais hint pirmajiem 3 (placeholder) */
     .code-boxes input.hint::placeholder{
       color:#9aa3ad;
       font-weight:900;
+    }
+
+    /* Mobile: lai neizlien ārā */
+    @media (max-width: 520px){
+      .code-boxes{
+        grid-template-columns: repeat(8, minmax(0, 1fr));
+        width: 100%;
+      }
+      .code-boxes input{
+        width:100%;
+        min-height:48px;
+        font-size:18px;
+      }
     }
 
     /* Address blocks */
@@ -173,7 +188,13 @@
       margin-top:12px;
       background:#fff;
     }
-
+    .address-head{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      margin-bottom:10px;
+    }
     .badge{
       font-size:12px;
       color:#1b1b1b;
@@ -181,11 +202,10 @@
       background:#eef3f8;
       border-radius:999px;
       padding:6px 10px;
-      display:inline-block;
-      margin-bottom:10px;
     }
     .badge.hidden{ display:none; }
 
+    /* Meters */
     .meters{
       margin-top:10px;
       display:flex;
@@ -197,21 +217,42 @@
       display:grid;
       grid-template-columns: 1fr;
       gap:10px;
+      align-items:stretch;
       border:1px solid #eef2f6;
       border-radius: var(--radius);
       padding:12px;
       background:#fbfcfe;
     }
 
+    /* Delete button = smuks sarkans krustiņš */
     .del-btn{
-      width:100%;
-      border-radius: 14px;
+      width:44px;
+      height:44px;
+      min-width:44px;
+      min-height:44px;
+      border-radius:12px;
       border:2px solid #f0c9cf;
       background:#fff;
       color:#b00020;
       cursor:pointer;
       font-weight:1000;
-      min-height:46px;
+      padding:0;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      line-height:1;
+      justify-self:end;
+      align-self:end;
+    }
+    .del-btn::before{
+      content:"×";
+      font-size:28px;
+      transform: translateY(-1px);
+    }
+    .del-btn:hover{ background:#fff5f7; }
+    .del-btn:focus{
+      outline:none;
+      box-shadow: 0 0 0 4px rgba(176,0,32,.12);
     }
     .del-btn.hidden{ display:none; }
 
@@ -219,9 +260,7 @@
       .meter-row{
         grid-template-columns: 1fr 1fr auto;
         align-items:end;
-      }
-      .del-btn{
-        width:46px; min-width:46px; min-height:46px; padding:0;
+        padding:14px;
       }
     }
 
@@ -254,6 +293,10 @@
       margin-top:8px;
       min-height:46px;
     }
+    @media (min-width: 520px){
+      .btn-add-meter{ width: fit-content; }
+    }
+    .btn-add-meter:hover{ background:#eef3f8; }
 
     .sticky-submit{
       position: sticky;
@@ -276,9 +319,13 @@
       min-height:52px;
       box-shadow: 0 10px 24px rgba(31,95,134,.18);
     }
-    .btn-primary.disabled{ opacity:.55; cursor:not-allowed; box-shadow:none; }
+    .btn-primary:active{ transform: translateY(1px); }
+    .btn-primary.disabled{
+      opacity:.55;
+      cursor:not-allowed;
+      box-shadow:none;
+    }
 
-    /* Autocomplete */
     .suggestions{
       position:absolute;
       top:100%;
@@ -426,8 +473,9 @@
       for (let i = 0; i < digits.length && (startIndex + i) < 8; i++) {
         host.children[startIndex + i].value = digits[i];
       }
-      let focusIndex = Math.min(startIndex + digits.length, 7);
-      for (let k = startIndex; k < 8; k++) {
+      // fokusē uz nākamo tukšo vai pēdējo
+      let focusIndex = 7;
+      for (let k = 0; k < 8; k++) {
         if (!host.children[k].value) { focusIndex = k; break; }
       }
       host.children[focusIndex].focus();
@@ -458,13 +506,13 @@
         if (e.key === "Backspace" && !inp.value && i > 0) host.children[i-1].focus();
       });
 
+      // Paste: vienmēr aizpilda no 1. lauka
       inp.addEventListener("paste", (e) => {
         e.preventDefault();
         const text = (e.clipboardData || window.clipboardData).getData("text");
-        const digits = (text || "").replace(/\D/g, "");
+        const digits = (text || "").replace(/\D/g, "").slice(0,8);
         if (!digits) return;
-
-        fillFrom(i, digits);
+        fillFrom(0, digits);
         refreshAll();
       });
 
@@ -532,6 +580,19 @@
     });
   }
 
+  // Addresses + meters UI
+  function renumberAddresses() {
+    const blocks = $$(".address-block", $("#addresses"));
+    blocks.forEach((block, i) => {
+      const badge = $(".badge", block);
+      if (i === 0) badge.classList.add("hidden");
+      else { badge.classList.remove("hidden"); badge.textContent = `Adrese ${i+1}`; }
+
+      const delBtn = $(".delete-address-btn", block);
+      if (delBtn) delBtn.style.display = (i === 0) ? "none" : "inline-block";
+    });
+  }
+
   function updateMeterDeleteButtons(addressBlock) {
     const rows = $$(".meter-row", addressBlock);
     rows.forEach((r, idx) => {
@@ -545,16 +606,30 @@
     const row = el("div", { class:"meter-row" });
 
     const nrInput = el("input", {
-      type:"text", inputmode:"numeric", pattern:"[0-9]*",
-      "data-role":"meterNr", autocomplete:"off"
+      type:"text",
+      inputmode:"numeric",
+      pattern:"[0-9]*",
+      placeholder:"",
+      "data-role":"meterNr",
+      autocomplete:"off"
     });
-    nrInput.addEventListener("input", () => { nrInput.value = nrInput.value.replace(/\D/g, ""); refreshAll(); });
+    nrInput.addEventListener("input", () => {
+      nrInput.value = nrInput.value.replace(/\D/g, "");
+      refreshAll();
+    });
 
     const valInput = el("input", {
-      type:"text", inputmode:"numeric", pattern:"[0-9]*",
-      placeholder:"123", "data-role":"reading", autocomplete:"off"
+      type:"text",
+      inputmode:"numeric",
+      pattern:"[0-9]*",
+      placeholder:"123",
+      "data-role":"reading",
+      autocomplete:"off"
     });
-    valInput.addEventListener("input", () => { valInput.value = valInput.value.replace(/\D/g, ""); refreshAll(); });
+    valInput.addEventListener("input", () => {
+      valInput.value = valInput.value.replace(/\D/g, "");
+      refreshAll();
+    });
 
     const f1 = el("div", { class:"field" }, [
       el("label", { text:"Skaitītāja Nr" }),
@@ -569,9 +644,15 @@
     ]);
 
     const del = el("button", {
-      type:"button", class:"del-btn hidden",
-      text:"Dzēst skaitītāju",
-      onclick: () => { row.remove(); updateMeterDeleteButtons(addressBlock); refreshAll(); }
+      type:"button",
+      class:"del-btn hidden",
+      title:"Dzēst skaitītāju",
+      "aria-label":"Dzēst skaitītāju",
+      onclick: () => {
+        row.remove();
+        updateMeterDeleteButtons(addressBlock);
+        refreshAll();
+      }
     });
 
     row.append(f1, f2, del);
@@ -580,11 +661,16 @@
 
   function createAddressBlock() {
     const block = el("div", { class:"address-block" });
-    const badge = el("div", { class:"badge hidden", text:"Adrese 1" });
+
+    const head = el("div", { class:"address-head" }, [
+      el("div", { class:"badge", text:"Adrese 1" })
+    ]);
 
     const addressInput = el("input", {
-      type:"text", placeholder:"Ievadiet adresi",
-      "data-role":"addressText", autocomplete:"street-address"
+      type:"text",
+      placeholder:"Ievadiet adresi",
+      "data-role":"addressText",
+      autocomplete:"street-address"
     });
 
     const addressField = el("div", { class:"field" }, [
@@ -597,13 +683,19 @@
     metersHost.appendChild(createMeterRow(block));
 
     const addMeterBtn = el("button", {
-      type:"button", class:"btn-add-meter",
+      type:"button",
+      class:"btn-add-meter",
       text:"+ Pievienot skaitītāju",
-      onclick: () => { metersHost.appendChild(createMeterRow(block)); updateMeterDeleteButtons(block); refreshAll(); }
+      onclick: () => {
+        metersHost.appendChild(createMeterRow(block));
+        updateMeterDeleteButtons(block);
+        refreshAll();
+      }
     });
 
     const removeAddressBtn = el("button", {
-      type:"button", class:"btn-secondary delete-address-btn",
+      type:"button",
+      class:"btn-secondary delete-address-btn",
       text:"Dzēst adresi",
       onclick: () => {
         const all = $$(".address-block", $("#addresses"));
@@ -614,25 +706,15 @@
       }
     });
 
-    block.append(badge, addressField, metersHost, addMeterBtn, el("div", { class:"btn-row" }, [removeAddressBtn]));
+    const actions = el("div", { class:"btn-row" }, [removeAddressBtn]);
+
+    block.append(head, addressField, metersHost, addMeterBtn, actions);
 
     attachAddressAutocomplete(addressInput);
     addressInput.addEventListener("input", refreshAll);
 
     updateMeterDeleteButtons(block);
     return block;
-  }
-
-  function renumberAddresses() {
-    const blocks = $$(".address-block", $("#addresses"));
-    blocks.forEach((block, i) => {
-      const badge = $(".badge", block);
-      if (i === 0) badge.classList.add("hidden");
-      else { badge.classList.remove("hidden"); badge.textContent = `Adrese ${i+1}`; }
-
-      const delBtn = $(".delete-address-btn", block);
-      if (delBtn) delBtn.style.display = (i === 0) ? "none" : "inline-block";
-    });
   }
 
   function initAddresses() {
