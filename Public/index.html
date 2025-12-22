@@ -134,43 +134,35 @@
     }
     .noticeBox.show{ display:block; }
 
-    /* Abonenta numurs: prefikss + viens lauks 5 cipariem */
-    .abon-row{
-      display:flex;
-      align-items:stretch;
-      gap:10px;
+    /* 8 kvadrātiņi vienā rindā, elastīgi (lai neizlien ārā iPhone) */
+    .code-boxes{
+      display:grid;
+      grid-template-columns: repeat(8, minmax(0, 1fr));
+      gap: 8px;
+      padding: 4px 0 2px;
+      width: 100%;
+    }
+
+    .code-boxes input{
       width:100%;
-    }
-
-    .abon-prefix{
-      flex:0 0 auto;
-      min-width:86px;
-      display:flex;
-      align-items:center;
-      justify-content:center;
-      border:2px solid #d7dde5;
-      background:#f1f3f6;
-      color:#9aa3ad;
-      border-radius: var(--radius);
+      text-align:center;
       font-weight:1000;
-      font-size:20px;
-      letter-spacing:.6px;
-      padding: 0 14px;
-      min-height:54px;
-      user-select:none;
-    }
-
-    .abon-input{
-      flex:1 1 auto;
+      border-radius:14px;
+      padding:0;
       min-height:54px;
       font-size:20px;
-      text-align:left;
-      letter-spacing:.6px;
+      letter-spacing:.5px;
     }
 
     @media (max-width: 420px){
-      .abon-prefix{ min-width:76px; font-size:18px; min-height:50px; }
-      .abon-input{ min-height:50px; font-size:18px; }
+      .code-boxes{ gap: 6px; }
+      .code-boxes input{ min-height:48px; font-size:18px; }
+    }
+
+    /* pelēkais "hint" pirmajiem 3 (placeholder) */
+    .code-boxes input.hint::placeholder{
+      color:#9aa3ad;
+      font-weight:900;
     }
 
     /* Address blocks */
@@ -369,23 +361,8 @@
 
       <div class="field">
         <label>Abonenta numurs (8 cipari)</label>
-        <div class="muted">Ievadi pēdējos 5 ciparus.</div>
-
-        <div class="abon-row">
-          <div class="abon-prefix" aria-hidden="true">012</div>
-          <input
-            id="abonTail"
-            class="abon-input"
-            type="text"
-            inputmode="numeric"
-            pattern="[0-9]*"
-            maxlength="5"
-            placeholder="_____"
-            autocomplete="off"
-            aria-label="Ievadi pēdējos 5 ciparus"
-          />
-        </div>
-
+        <div class="muted">Ievadi 8 ciparus.</div>
+        <div class="code-boxes" id="abonentaCodeBoxes"></div>
         <div class="error" id="errAbonents">Abonenta numuram jābūt 8 cipariem.</div>
       </div>
 
@@ -405,7 +382,7 @@
 
 <script>
   const CFG = {
-    abonRegex: /^012\d{5}$/,
+    abonRegex: /^\d{8}$/,
     meterNrRegex: /^\d+$/,
     readingRegex: /^\d+$/,
     addrMinChars: 2,
@@ -457,41 +434,68 @@
     }
   }
 
-  // Abonenta numurs: prefikss 012 + 5 cipari
-  function initAbonentInput() {
-    const inp = $("#abonTail");
+  // 8 kvadrātiņi, pirmajiem 3 placeholder "0 1 2" (var pārrakstīt)
+  function initCodeBoxes() {
+    const host = $("#abonentaCodeBoxes");
+    host.innerHTML = "";
 
-    const normalize = () => {
-      inp.value = (inp.value || "").replace(/\D/g, "").slice(0,5);
-      refreshAll();
+    const hints = ["0","1","2"];
 
-      // Bonus: kad ievadīti 5 cipari, pāriet uz pirmo adreses lauku
-      if (inp.value.length === 5) {
-        const firstAddr = $("#addresses input[data-role='addressText']");
-        if (firstAddr) firstAddr.focus();
+    function fillFrom(startIndex, digits) {
+      for (let i = 0; i < digits.length && (startIndex + i) < 8; i++) {
+        host.children[startIndex + i].value = digits[i];
       }
-    };
+      // fokusē uz nākamo tukšo / pēdējo
+      let focusIndex = Math.min(startIndex + digits.length, 7);
+      for (let k = startIndex; k < 8; k++) {
+        if (!host.children[k].value) { focusIndex = k; break; }
+      }
+      host.children[focusIndex].focus();
+    }
 
-    inp.addEventListener("input", normalize);
+    for (let i=0; i<8; i++) {
+      const inp = el("input", {
+        type:"text",
+        inputmode:"numeric",
+        pattern:"[0-9]*",
+        maxlength:"1",
+        autocomplete:"one-time-code",
+        "aria-label":`Cipars ${i+1}`
+      });
 
-    inp.addEventListener("paste", (e) => {
-      e.preventDefault();
-      const text = (e.clipboardData || window.clipboardData).getData("text") || "";
-      const digits = text.replace(/\D/g, "");
+      if (i < 3) {
+        inp.placeholder = hints[i];
+        inp.classList.add("hint");
+      }
 
-      // atbalstām gan 012xxxxx, gan xxxxx
-      let tail = "";
-      if (digits.length >= 8) tail = digits.slice(-5);
-      else tail = digits.slice(0,5);
+      inp.addEventListener("input", () => {
+        inp.value = inp.value.replace(/\D/g, "").slice(0,1);
+        if (inp.value && i < 7) host.children[i+1].focus();
+        refreshAll();
+      });
 
-      inp.value = tail;
-      normalize();
-    });
+      inp.addEventListener("keydown", (e) => {
+        if (e.key === "Backspace" && !inp.value && i > 0) host.children[i-1].focus();
+      });
+
+      inp.addEventListener("paste", (e) => {
+        e.preventDefault();
+        const text = (e.clipboardData || window.clipboardData).getData("text");
+        const digits = (text || "").replace(/\D/g, "");
+        if (!digits) return;
+
+        const start = Math.min(i, 7);
+        fillFrom(start, digits);
+        refreshAll();
+      });
+
+      host.appendChild(inp);
+    }
   }
 
   function readAbonentaKods() {
-    const tail = ($("#abonTail").value || "").trim();
-    return "012" + tail;
+    // tukšas rūtiņas skaitās kā tukšs simbols => validācija nobloķēs
+    return $$("#abonentaCodeBoxes input").map(i => i.value.trim()).join("");
   }
 
   // Address autocomplete via API
@@ -772,7 +776,7 @@
 
   function refreshFieldErrors() {
     const abon = readAbonentaKods();
-    showError("errAbonents", ($("#abonTail").value || "").trim().length > 0 && !CFG.abonRegex.test(abon));
+    showError("errAbonents", abon.length > 0 && !CFG.abonRegex.test(abon));
 
     const blocks = $$(".address-block", $("#addresses"));
     blocks.forEach(block => {
@@ -828,7 +832,6 @@
       return;
     }
 
-    // notīra tikai rādījumus
     $$(".meter-row input[data-role='reading']").forEach(inp => inp.value = "");
     refreshAll();
     showOk("Rādījumi iesniegti.");
@@ -837,7 +840,7 @@
   function refreshAll() { updateSubmitState(); }
 
   function init() {
-    initAbonentInput();
+    initCodeBoxes();
     initAddresses();
 
     $("#addAddressBtn").addEventListener("click", () => {
