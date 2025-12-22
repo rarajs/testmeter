@@ -134,15 +134,16 @@
     }
     .noticeBox.show{ display:block; }
 
-    /* Abonenta koda 8 box - mobile first: 4+4 grid */
+    /* Abonenta koda 8 box - VIENĀ RINDĀ arī mobilajā */
     .code-boxes{
       display:grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap:10px;
+      grid-template-columns: repeat(8, 42px);
+      gap:8px;
       padding: 4px 0 2px;
+      justify-content: space-between;
     }
     .code-boxes input{
-      width:100%;
+      width:42px;
       text-align:center;
       font-weight:1000;
       border-radius:14px;
@@ -151,9 +152,11 @@
       font-size:20px;
       letter-spacing:.5px;
     }
-    @media (min-width: 560px){
-      .code-boxes{ grid-template-columns: repeat(8, 1fr); }
-      .code-boxes input{ min-height:50px; font-size:18px; }
+    /* Fiksētais prefikss 012 */
+    .code-boxes input.prefix{
+      background:#f1f3f6;
+      color:#9aa3ad;
+      border-color:#d7dde5;
     }
 
     /* Address blocks */
@@ -359,7 +362,7 @@
 
       <div class="field">
         <label>Abonenta numurs (8 cipari)</label>
-        <div class="muted">Ievadi 8 ciparus. Var arī ielīmēt visu numuru.</div>
+        <div class="muted">Ievadi pēdējos 5 ciparus. Pirmie 3 ir fiksēti: <b>012</b>. Var arī ielīmēt visu numuru.</div>
         <div class="code-boxes" id="abonentaCodeBoxes"></div>
         <div class="error" id="errAbonents">Abonenta numuram jābūt 8 cipariem.</div>
       </div>
@@ -432,10 +435,12 @@
     }
   }
 
-  // Abonent boxes
+  // Abonent boxes (pirmie 3 = fiksēti 012)
   function initCodeBoxes() {
     const host = $("#abonentaCodeBoxes");
     host.innerHTML = "";
+
+    const prefix = ["0","1","2"];
 
     for (let i=0; i<8; i++) {
       const inp = el("input", {
@@ -447,27 +452,57 @@
         "aria-label":`Cipars ${i+1}`
       });
 
+      // Fiksēts prefikss 012
+      if (i < 3) {
+        inp.value = prefix[i];
+        inp.readOnly = true;
+        inp.classList.add("prefix");
+        inp.tabIndex = -1;
+      }
+
       inp.addEventListener("input", () => {
+        if (inp.readOnly) return;
+
         inp.value = inp.value.replace(/\D/g, "").slice(0,1);
-        if (inp.value && i < 7) host.children[i+1].focus();
+
+        if (i >= 3 && inp.value) {
+          // atrast nākamo editējamo (3..7)
+          for (let k = i + 1; k < 8; k++) {
+            if (!host.children[k].readOnly) {
+              host.children[k].focus();
+              break;
+            }
+          }
+        }
         refreshAll();
       });
 
       inp.addEventListener("keydown", (e) => {
-        if (e.key === "Backspace" && !inp.value && i > 0) host.children[i-1].focus();
+        if (inp.readOnly) return;
+        if (e.key === "Backspace" && !inp.value && i > 3) host.children[i-1].focus();
       });
 
       inp.addEventListener("paste", (e) => {
         e.preventDefault();
         const text = (e.clipboardData || window.clipboardData).getData("text");
-        const digits = (text || "").replace(/\D/g, "").slice(0,8);
-        for (let j=0; j<8; j++) host.children[j].value = digits[j] || "";
-        (host.children[Math.min(digits.length,7)] || host.children[7]).focus();
+        const digits = (text || "").replace(/\D/g, "");
+
+        // Ja ielīmē 8 ciparus (012xxxxx) → ņem pēdējos 5
+        // Ja ielīmē 5 ciparus → ņem tos
+        let tail = "";
+        if (digits.length >= 8) tail = digits.slice(-5);
+        else tail = digits.slice(0, 5);
+
+        for (let j=0; j<5; j++) host.children[3+j].value = tail[j] || "";
+        host.children[3].focus();
         refreshAll();
       });
 
       host.appendChild(inp);
     }
+
+    // Fokusē uz pirmo ievadāmo (4. lauciņš)
+    host.children[3].focus();
   }
 
   function readAbonentaKods() {
