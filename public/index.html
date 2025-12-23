@@ -67,6 +67,7 @@
       border-radius:12px; border:2px solid #cfd6de; padding:0;
     }
     @media (max-width:640px){ .code-boxes input{ width:38px; } }
+    @media (max-width:380px){ .code-boxes input{ width:34px; height:44px; } }
 
     /* Address blocks */
     .address-block{
@@ -86,7 +87,7 @@
     /* Meters */
     .meters{ margin-top:10px; display:flex; flex-direction:column; gap:10px; }
 
-    /* FIXED ALIGNMENT: 2 cols, delete overlay */
+    /* desktop layout: 2 cols, delete overlay */
     .meter-row{
       display:grid;
       grid-template-columns: 1fr 1fr;
@@ -109,6 +110,23 @@
       font-weight:900;
     }
     .del-btn.hidden{ display:none; }
+
+    /* MOBILE: stack fields + keep delete visible */
+    @media (max-width:640px){
+      body{ padding:12px; }
+      .card{ padding:14px; }
+      .meter-row{
+        grid-template-columns: 1fr;
+        padding-right:0;
+      }
+      .del-btn{
+        position:static;
+        margin-left:auto;
+        margin-top:6px;
+        width:42px;
+        height:42px;
+      }
+    }
 
     .btn-row{ display:flex; gap:12px; margin-top:12px; flex-wrap:wrap; }
     .btn-secondary{
@@ -191,7 +209,8 @@
   const CFG = {
     abonRegex: /^\d{8}$/,
     meterNrRegex: /^\d+$/,
-    readingRegex: /^\d+$/,
+    // ✅ allow decimals: 123 or 123.4 or 123.45 (also comma)
+    readingRegex: /^\d+([.,]\d{1,2})?$/,
     addrMinChars: 2,
     addrLimit: 12,
     meterDeleteShownFromIndex: 1
@@ -331,6 +350,28 @@
     });
   }
 
+  // ✅ normalize reading input to allow decimal with max 2 decimals
+  function normalizeReadingInput(raw) {
+    let s = String(raw || '').trim();
+
+    // convert comma to dot (store consistently)
+    s = s.replace(',', '.');
+
+    // keep only digits and dots
+    s = s.replace(/[^\d.]/g, '');
+
+    // allow only one dot
+    const firstDot = s.indexOf('.');
+    if (firstDot !== -1) {
+      s = s.slice(0, firstDot + 1) + s.slice(firstDot + 1).replace(/\./g, '');
+      // limit decimals to 2
+      const [a, b=''] = s.split('.');
+      s = a + '.' + b.slice(0, 2);
+    }
+
+    return s;
+  }
+
   // Addresses + meters UI
   function renumberAddresses() {
     const blocks = $$(".address-block", $("#addresses"));
@@ -362,9 +403,9 @@
       refreshAll();
     });
 
-    const valInput = el("input", { type:"text", inputmode:"numeric", placeholder:"123", "data-role":"reading" });
+    const valInput = el("input", { type:"text", inputmode:"decimal", placeholder:"123", "data-role":"reading" });
     valInput.addEventListener("input", () => {
-      valInput.value = valInput.value.replace(/\D/g, "");
+      valInput.value = normalizeReadingInput(valInput.value);
       refreshAll();
     });
 
@@ -377,7 +418,7 @@
     const f2 = el("div", { class:"field" }, [
       el("label", { text:"Rādījums" }),
       valInput,
-      el("div", { class:"error", "data-err":"reading", text:"Rādījumam jābūt veselam skaitlim." })
+      el("div", { class:"error", "data-err":"reading", text:"Rādījumam jābūt skaitlim (līdz 2 zīmēm aiz komata)." })
     ]);
 
     const del = el("button", {
@@ -500,7 +541,10 @@
     lines.forEach((ln, idx) => {
       if (!ln.adrese) return;
       if (!CFG.meterNrRegex.test(ln.skaititaja_numurs)) reasons.push(`Skaitītājs ${idx+1}: Nr jābūt tikai cipariem.`);
-      if (!CFG.readingRegex.test(ln.radijums_raw)) reasons.push(`Skaitītājs ${idx+1}: rādījumam jābūt veselam skaitlim.`);
+
+      // validate decimal reading
+      const rNorm = normalizeReadingInput(ln.radijums_raw);
+      if (!CFG.readingRegex.test(rNorm)) reasons.push(`Skaitītājs ${idx+1}: rādījumam jābūt skaitlim (līdz 2 zīmēm aiz komata).`);
     });
 
     return reasons;
@@ -548,7 +592,9 @@
       const nrErr = $("[data-err='meterNr']", ln.rowEl);
       const rdErr = $("[data-err='reading']", ln.rowEl);
       nrErr.classList.toggle("show", !CFG.meterNrRegex.test(ln.skaititaja_numurs));
-      rdErr.classList.toggle("show", !CFG.readingRegex.test(ln.radijums_raw));
+
+      const rNorm = normalizeReadingInput(ln.radijums_raw);
+      rdErr.classList.toggle("show", !CFG.readingRegex.test(rNorm));
     });
   }
 
@@ -565,7 +611,7 @@
     const lines = buildLines().map(ln => ({
       adrese: ln.adrese,
       skaititaja_numurs: ln.skaititaja_numurs,
-      radijums: Number(ln.radijums_raw)
+      radijums: normalizeReadingInput(ln.radijums_raw) // send as string, server accepts
     }));
 
     const payload = { abonenta_numurs: abon, lines };
@@ -593,6 +639,7 @@
     $("#submitInfo").classList.remove("show");
     $("#submitInfo").innerHTML = "";
 
+    // clear only readings
     $$(".meter-row input[data-role='reading']").forEach(inp => inp.value = "");
     updateSubmitState();
   }
