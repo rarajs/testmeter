@@ -113,6 +113,11 @@
       box-shadow: 0 0 0 4px rgba(31,95,134,.12);
     }
 
+    input::placeholder{
+      color:#9aa3ad;
+      font-weight:800;
+    }
+
     .error{
       font-size:12px;
       color:var(--err);
@@ -134,7 +139,12 @@
     }
     .noticeBox.show{ display:block; }
 
-    /* Abonenta kods (8 boxes) */
+    /* =========================
+       ABONENTA KODS (8 boxes)
+       Desktop: šauri
+       Mobile: elastīgi
+       ========================= */
+
     .code-boxes{
       display:grid;
       grid-template-columns: repeat(8, 30px);
@@ -155,6 +165,7 @@
       letter-spacing:.2px;
     }
 
+    /* pelēkais hint pirmajiem 3 (placeholder) */
     .code-boxes input.hint::placeholder{
       color:#9aa3ad;
       font-weight:900;
@@ -205,7 +216,6 @@
       gap:12px;
     }
 
-    /* Mobile default: stack */
     .meter-row{
       display:grid;
       grid-template-columns: 1fr;
@@ -217,10 +227,10 @@
       background:#fbfcfe;
     }
 
-    /* Desktop: vienmēr 3 kolonnas, lai NEKAS nenobīdās */
+    /* Desktop: vienmēr 3 kolonnas (lai nenobīdās) */
     @media (min-width: 760px){
       .meter-row{
-        grid-template-columns: 1fr 1fr 56px;   /* <- vieta dzēšanai vienmēr */
+        grid-template-columns: 1fr 1fr 56px;
         align-items:end;
         padding:14px;
       }
@@ -237,7 +247,7 @@
       min-height:46px;
     }
 
-    /* Desktop: ikona (×) */
+    /* Desktop: ikona */
     @media (min-width: 760px){
       .del-btn{
         width:44px;
@@ -270,8 +280,8 @@
     }
 
     /* Hidden:
-       - Desktop: saglabā vietu (lai rindas ir vienādas) -> visibility hidden
-       - Mobile: nerādām vispār (lai nav tukšas vietas) -> display none
+       - Desktop: saglabā vietu (vienāds izkārtojums) -> visibility hidden
+       - Mobile: nerādām -> display none
     */
     .del-btn.hidden{ visibility:hidden; pointer-events:none; }
     @media (max-width: 759px){
@@ -422,10 +432,10 @@
       <div class="section-title">Abonenta informācija</div>
 
       <div class="field">
-        <label>Abonenta numurs (8 cipari)</label>
-        <div class="muted">Ievadi 8 ciparus.</div>
+        <label>Abonenta kods (8 cipari)</label>
+        <div class="muted">Vari ievadīt visus 8 ciparus vai tikai pēdējos 5 (tad sākumā automātiski tiks pievienots 012).</div>
         <div class="code-boxes" id="abonentaCodeBoxes"></div>
-        <div class="error" id="errAbonents">Abonenta numuram jābūt 8 cipariem.</div>
+        <div class="error" id="errAbonents">Abonenta kodam jābūt 8 cipariem.</div>
       </div>
 
       <div class="section-title">Adreses un skaitītāji</div>
@@ -444,9 +454,11 @@
 
 <script>
   const CFG = {
-    abonRegex: /^\d{8}$/,
+    abonRegex8: /^\d{8}$/,
+    abonRegex5: /^\d{5}$/,
     meterNrRegex: /^\d+$/,
-    readingRegex: /^\d+$/,
+    // allow decimals with up to 2 digits, dot or comma
+    readingRegex: /^\d+([.,]\d{1,2})?$/,
     addrMinChars: 2,
     addrLimit: 12,
     meterDeleteShownFromIndex: 1
@@ -497,21 +509,47 @@
   }
 
   // 8 kvadrātiņi, pirmajiem 3 placeholder "0 1 2" (var pārrakstīt)
+  // Ja ievada tikai 5 ciparus -> automātiski ieliek uz pēdējiem 5, un pirmajos 3 atstāj tukšu (ar hintiem)
   function initCodeBoxes() {
     const host = $("#abonentaCodeBoxes");
     host.innerHTML = "";
 
     const hints = ["0","1","2"];
 
+    function setAllEmpty() {
+      for (let i = 0; i < 8; i++) host.children[i].value = "";
+    }
+
     function fillFrom(startIndex, digits) {
       for (let i = 0; i < digits.length && (startIndex + i) < 8; i++) {
         host.children[startIndex + i].value = digits[i];
       }
+      // fokusē uz nākamo tukšo vai pēdējo
       let focusIndex = 7;
       for (let k = 0; k < 8; k++) {
         if (!host.children[k].value) { focusIndex = k; break; }
       }
       host.children[focusIndex].focus();
+    }
+
+    function normalizeFiveIfNeeded() {
+      const vals = hostChildrenValues();
+      const filled = vals.filter(Boolean).length;
+      const first3 = vals.slice(0,3).join("");
+      const last3Empty = vals.slice(5,8).every(v => !v);
+
+      // Ja lietotājs ieraksta 5 ciparus sākumā (0..4), pārceļam tos uz 3..7
+      if (filled === 5 && last3Empty) {
+        const first5 = vals.slice(0,5).join("");
+        if (/^\d{5}$/.test(first5)) {
+          setAllEmpty();
+          fillFrom(3, first5);
+        }
+      }
+    }
+
+    function hostChildrenValues() {
+      return $$("#abonentaCodeBoxes input").map(i => i.value.trim());
     }
 
     for (let i=0; i<8; i++) {
@@ -531,6 +569,7 @@
 
       inp.addEventListener("input", () => {
         inp.value = inp.value.replace(/\D/g, "").slice(0,1);
+        normalizeFiveIfNeeded();
         if (inp.value && i < 7) host.children[i+1].focus();
         refreshAll();
       });
@@ -539,13 +578,20 @@
         if (e.key === "Backspace" && !inp.value && i > 0) host.children[i-1].focus();
       });
 
-      // Paste: vienmēr aizpilda no 1. rūtiņas
       inp.addEventListener("paste", (e) => {
         e.preventDefault();
         const text = (e.clipboardData || window.clipboardData).getData("text");
-        const digits = (text || "").replace(/\D/g, "").slice(0,8);
-        if (!digits) return;
-        fillFrom(0, digits);
+        const digitsAll = (text || "").replace(/\D/g, "");
+        if (!digitsAll) return;
+
+        // 5 cipari => aizpilda pēdējos 5 (3..7)
+        // 8+ cipari => ņem pirmos 8 un aizpilda 0..7
+        setAllEmpty();
+        if (digitsAll.length === 5) {
+          fillFrom(3, digitsAll);
+        } else {
+          fillFrom(0, digitsAll.slice(0,8));
+        }
         refreshAll();
       });
 
@@ -553,8 +599,22 @@
     }
   }
 
+  // Atgriež vienmēr 8 ciparus:
+  // - ja ievadīti 8 -> tie
+  // - ja ievadīti tikai pēdējie 5 (3..7) -> "012" + pēdējie 5
   function readAbonentaKods() {
-    return $$("#abonentaCodeBoxes input").map(i => i.value.trim()).join("");
+    const vals = $$("#abonentaCodeBoxes input").map(i => i.value.trim());
+    const s = vals.join("");
+
+    if (/^\d{8}$/.test(s)) return s;
+
+    const first3Empty = vals.slice(0,3).every(v => !v);
+    const last5 = vals.slice(3,8).join("");
+    if (first3Empty && /^\d{5}$/.test(last5)) {
+      return "012" + last5;
+    }
+
+    return s; // var būt nepilns – validācija nobloķēs
   }
 
   // Address autocomplete via API
@@ -565,9 +625,7 @@
     return Array.isArray(data.items) ? data.items : [];
   }
 
-  function buildSuggestionsBox() {
-    return el("div", { class:"suggestions" });
-  }
+  function buildSuggestionsBox() { return el("div", { class:"suggestions" }); }
 
   function showSuggestions(box, items, onPick) {
     box.innerHTML = "";
@@ -579,9 +637,7 @@
     box.classList.add("show");
   }
 
-  function hideSuggestions(box) {
-    box.classList.remove("show");
-  }
+  function hideSuggestions(box) { box.classList.remove("show"); }
 
   function attachAddressAutocomplete(inputEl) {
     const box = buildSuggestionsBox();
@@ -634,6 +690,31 @@
     });
   }
 
+  function normalizeDecimalInput(s) {
+    s = (s || "");
+    // atļaujam ciparus, punktu vai komatu
+    s = s.replace(/[^\d.,]/g, "");
+    // tikai viens atdalītājs
+    const firstSep = s.search(/[.,]/);
+    if (firstSep >= 0) {
+      const before = s.slice(0, firstSep).replace(/[.,]/g, "");
+      let after = s.slice(firstSep + 1).replace(/[.,]/g, "");
+      after = after.slice(0, 2); // max 2 zīmes aiz komata
+      s = before + "." + after;
+    } else {
+      s = s;
+    }
+    // noņem liekos sākuma nulles, bet atstāj "0" ja tikai nulles
+    if (s.includes(".")) {
+      const [a,b] = s.split(".");
+      const a2 = a.replace(/^0+(?=\d)/, "");
+      return (a2 === "" ? "0" : a2) + "." + b;
+    } else {
+      const a2 = s.replace(/^0+(?=\d)/, "");
+      return a2 === "" ? "" : a2;
+    }
+  }
+
   function createMeterRow(addressBlock) {
     const row = el("div", { class:"meter-row" });
 
@@ -652,14 +733,13 @@
 
     const valInput = el("input", {
       type:"text",
-      inputmode:"numeric",
-      pattern:"[0-9]*",
-      placeholder:"123",
+      inputmode:"decimal",
+      placeholder:"00000.00",
       "data-role":"reading",
       autocomplete:"off"
     });
     valInput.addEventListener("input", () => {
-      valInput.value = valInput.value.replace(/\D/g, "");
+      valInput.value = normalizeDecimalInput(valInput.value);
       refreshAll();
     });
 
@@ -672,7 +752,7 @@
     const f2 = el("div", { class:"field" }, [
       el("label", { text:"Rādījums" }),
       valInput,
-      el("div", { class:"error", "data-err":"reading", text:"Rādījumam jābūt veselam skaitlim." })
+      el("div", { class:"error", "data-err":"reading", text:"Rādījumam jābūt skaitlim (var būt 2 zīmes aiz komata)." })
     ]);
 
     const del = el("button", {
@@ -777,7 +857,7 @@
     const reasons = [];
     const abon = readAbonentaKods();
 
-    if (!CFG.abonRegex.test(abon)) reasons.push("Abonenta numuram jābūt 8 cipariem.");
+    if (!CFG.abonRegex8.test(abon)) reasons.push("Abonenta kodam jābūt 8 cipariem (var ievadīt arī tikai pēdējos 5).");
 
     const blocks = $$(".address-block", $("#addresses"));
     if (blocks.length < 1) reasons.push("Nav pievienota neviena adrese.");
@@ -793,7 +873,7 @@
     lines.forEach((ln, idx) => {
       if (!ln.adrese) return;
       if (!CFG.meterNrRegex.test(ln.skaititaja_numurs)) reasons.push(`Skaitītājs ${idx+1}: Nr jābūt tikai cipariem.`);
-      if (!CFG.readingRegex.test(ln.radijums_raw)) reasons.push(`Skaitītājs ${idx+1}: rādījumam jābūt veselam skaitlim.`);
+      if (!CFG.readingRegex.test(ln.radijums_raw)) reasons.push(`Skaitītājs ${idx+1}: rādījumam jābūt skaitlim (ar 2 zīmēm aiz komata).`);
     });
 
     return reasons;
@@ -834,7 +914,7 @@
 
   function refreshFieldErrors() {
     const abon = readAbonentaKods();
-    showError("errAbonents", abon.length > 0 && !CFG.abonRegex.test(abon));
+    showError("errAbonents", abon.length > 0 && !CFG.abonRegex8.test(abon));
 
     const blocks = $$(".address-block", $("#addresses"));
     blocks.forEach(block => {
@@ -848,7 +928,7 @@
       const nrErr = $("[data-err='meterNr']", ln.rowEl);
       const rdErr = $("[data-err='reading']", ln.rowEl);
       nrErr.classList.toggle("show", !CFG.meterNrRegex.test(ln.skaititaja_numurs));
-      rdErr.classList.toggle("show", !CFG.readingRegex.test(ln.radijums_raw));
+      rdErr.classList.toggle("show", !!ln.radijums_raw && !CFG.readingRegex.test(ln.radijums_raw));
     });
   }
 
@@ -862,10 +942,11 @@
     }
 
     const abon = readAbonentaKods();
+
     const lines = buildLines().map(ln => ({
       adrese: ln.adrese,
       skaititaja_numurs: ln.skaititaja_numurs,
-      radijums: Number(ln.radijums_raw)
+      radijums: Number((ln.radijums_raw || "").replace(",", "."))
     }));
 
     const payload = { abonenta_numurs: abon, lines };
@@ -890,6 +971,7 @@
       return;
     }
 
+    // notīra tikai rādījumus
     $$(".meter-row input[data-role='reading']").forEach(inp => inp.value = "");
     refreshAll();
     showOk("Rādījumi iesniegti.");

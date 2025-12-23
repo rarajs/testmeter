@@ -10,10 +10,10 @@ app.use(express.json({ limit: "1mb" }));
 const PORT = process.env.PORT ? Number(process.env.PORT) : 8080;
 const TZ = "Europe/Riga";
 
-// Admin key for API export via Bearer token (keep in Railway Variables)
+// Export auth via Bearer
 const ADMIN_KEY = process.env.ADMIN_KEY || "";
 
-// Test mode / production window
+// Submission window enforcement (test mode when 0/empty)
 const ENFORCE_WINDOW = process.env.ENFORCE_WINDOW === "1";
 
 // ====== PATHS ======
@@ -57,7 +57,7 @@ const BASIC_AUTH_PASS = process.env.BASIC_AUTH_PASS;
 
 if (BASIC_AUTH_USER && BASIC_AUTH_PASS) {
   app.use((req, res, next) => {
-    // Let /admin/* have its own separate Basic Auth popup
+    // /admin/* will have separate admin popup
     if (req.path.startsWith("/admin")) return next();
 
     const auth = req.headers.authorization;
@@ -191,7 +191,7 @@ function loadAddresses() {
   if (!fs.existsSync(ADDRESSES_CSV)) {
     throw new Error(
       `adreses.csv not found. Looked for: ${ADDRESSES_CSV}\n` +
-        `Tip: ensure repo contains data/adreses.csv (lowercase 'data' for Railway/Linux).`
+      `Tip: ensure repo contains data/adreses.csv (lowercase 'data' on Railway/Linux).`
     );
   }
 
@@ -219,7 +219,6 @@ function loadAddresses() {
   ADDRESS_LIST = out;
 
   console.log(`Loaded addresses: ${ADDRESS_LIST.length}`);
-  console.log(`ADDRESSES_CSV: ${ADDRESSES_CSV}`);
 }
 
 // Address scoring
@@ -301,7 +300,7 @@ function buildCsvForMonth(monthYYYYMM) {
 
   let out =
     `# exported_at=${exportedAt}; export_month=${monthYYYYMM}; tz=${TZ}\n` +
-    "abonenta_numurs,adrese,skaititaja_numurs,radijums,submitted_at\n";
+    "abonenta_kods,adrese,skaititaja_numurs,radijums,submitted_at\n";
 
   if (!fs.existsSync(SUBMISSIONS_FILE)) return out;
 
@@ -309,22 +308,17 @@ function buildCsvForMonth(monthYYYYMM) {
 
   for (const l of lines) {
     let rec;
-    try {
-      rec = JSON.parse(l);
-    } catch {
-      continue;
-    }
+    try { rec = JSON.parse(l); } catch { continue; }
     if (!rec?.submitted_at || !inMonth(rec.submitted_at)) continue;
 
     const submitted_at = rec.submitted_at || "";
-    const abon = rec.abonenta_numurs || "";
+    const abon = rec.abonenta_numurs || rec.abonenta_kods || "";
     const arr = Array.isArray(rec.lines) ? rec.lines : [];
 
     for (const item of arr) {
       const adrese = (item.adrese || "").toString().replace(/"/g, '""');
       const meter = (item.skaititaja_numurs || "").toString().replace(/"/g, '""');
       const reading = (item.radijums ?? "").toString().replace(/"/g, '""');
-
       out += `"${abon}","${adrese}","${meter}","${reading}","${submitted_at}"\n`;
     }
   }
@@ -377,7 +371,6 @@ app.get("/api/window", (req, res) => {
   });
 });
 
-// Addresses API (private CSV behind server)
 app.get("/api/addresses", (req, res) => {
   const q = (req.query.q || "").toString().trim();
   const limit = Math.min(50, Math.max(1, Number(req.query.limit || 12)));
@@ -387,7 +380,6 @@ app.get("/api/addresses", (req, res) => {
   res.json({ items });
 });
 
-// Submit readings
 app.post("/api/submit", (req, res) => {
   if (ENFORCE_WINDOW) {
     const now = DateTime.now().setZone(TZ);
@@ -404,11 +396,11 @@ app.post("/api/submit", (req, res) => {
   }
 
   const body = req.body || {};
-  const abon = (body.abonenta_numurs || "").toString().trim();
+  const abon = (body.abonenta_numurs || body.abonenta_kods || "").toString().trim();
   const lines = Array.isArray(body.lines) ? body.lines : [];
 
   if (!/^\d{8}$/.test(abon)) {
-    return res.status(400).json({ ok: false, error: "Invalid abonenta_numurs (must be 8 digits)" });
+    return res.status(400).json({ ok: false, error: "Invalid abonenta_kods (must be 8 digits)" });
   }
   if (!lines.length) {
     return res.status(400).json({ ok: false, error: "No lines provided" });
@@ -423,12 +415,19 @@ app.post("/api/submit", (req, res) => {
     if (!adrese) return res.status(400).json({ ok: false, error: `Line ${i + 1}: missing adrese` });
     if (!/^\d+$/.test(meter))
       return res.status(400).json({ ok: false, error: `Line ${i + 1}: skaititaja_numurs must be digits` });
-    if (!/^\d+$/.test(readingRaw))
-      return res.status(400).json({ ok: false, error: `Line ${i + 1}: radijums must be an integer` });
 
-    const reading = Number(readingRaw);
-    if (!Number.isFinite(reading))
+    // ✅ allow decimals up to 2 digits, dot or comma
+    if (!/^\d+([.,]\d{1,2})?$/.test(readingRaw)) {
+      return res.status(400).json({
+        ok: false,
+        error: `Line ${i + 1}: radijums must be a number (optionally with 2 decimals)`
+      });
+    }
+
+    const reading = Number(readingRaw.replace(",", "."));
+    if (!Number.isFinite(reading)) {
       return res.status(400).json({ ok: false, error: `Line ${i + 1}: invalid radijums` });
+    }
 
     cleaned.push({ adrese, skaititaja_numurs: meter, radijums: reading });
   }
@@ -450,24 +449,18 @@ app.post("/api/submit", (req, res) => {
 
 // ====== EXPORT HELPERS ======
 function buildBillingExportCsv() {
-  let out = "abonenta_numurs,adrese,skaititaja_numurs,radijums,submitted_at\n";
+  let out = "abonenta_kods,adrese,skaititaja_numurs,radijums,submitted_at\n";
 
-  if (!fs.existsSync(SUBMISSIONS_FILE)) {
-    return out;
-  }
+  if (!fs.existsSync(SUBMISSIONS_FILE)) return out;
 
   const lines = fs.readFileSync(SUBMISSIONS_FILE, "utf8").split("\n").filter(Boolean);
 
   for (const l of lines) {
     let rec;
-    try {
-      rec = JSON.parse(l);
-    } catch {
-      continue;
-    }
+    try { rec = JSON.parse(l); } catch { continue; }
 
     const submitted_at = rec.submitted_at || "";
-    const abon = rec.abonenta_numurs || "";
+    const abon = rec.abonenta_numurs || rec.abonenta_kods || "";
     const arr = Array.isArray(rec.lines) ? rec.lines : [];
 
     for (const item of arr) {
@@ -482,14 +475,12 @@ function buildBillingExportCsv() {
 
 // API export (Bearer token)
 app.get("/api/export.csv", (req, res) => {
-  if (ADMIN_KEY) {
-    const auth = req.headers.authorization || "";
-    if (!auth.startsWith("Bearer ")) return res.status(401).send("Unauthorized");
-    const token = auth.slice(7).trim();
-    if (token !== ADMIN_KEY) return res.status(401).send("Unauthorized");
-  } else {
-    return res.status(500).send("ADMIN_KEY not configured");
-  }
+  if (!ADMIN_KEY) return res.status(500).send("ADMIN_KEY not configured");
+
+  const auth = req.headers.authorization || "";
+  if (!auth.startsWith("Bearer ")) return res.status(401).send("Unauthorized");
+  const token = auth.slice(7).trim();
+  if (token !== ADMIN_KEY) return res.status(401).send("Unauthorized");
 
   const out = buildBillingExportCsv();
   res.setHeader("Content-Type", "text/csv; charset=utf-8");
@@ -517,9 +508,7 @@ try {
 }
 
 app.listen(PORT, () => {
-  console.log(`testmeter running: http://localhost:${PORT}`);
+  console.log(`testmeter running on port ${PORT}`);
   console.log(`ENFORCE_WINDOW: ${ENFORCE_WINDOW ? "ON" : "OFF (test mode)"}`);
-  console.log(`admin export: /admin/export.csv (requires ADMIN_USER/ADMIN_PASS)`);
-  console.log(`api export: /api/export.csv (requires Authorization: Bearer ADMIN_KEY)`);
   scheduleNextAutoExport();
 });
