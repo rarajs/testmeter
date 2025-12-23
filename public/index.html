@@ -325,7 +325,7 @@
       const w = await res.json();
 
       if (!w.is_open && w.enforce) {
-        box.innerHTML = "<b>Rādījumu iesniegšana 25.datuma mēneša beigām.</b>";
+        box.innerHTML = "<b>Rādījumu iesniegšana no 25.datuma līdz mēneša beigām.</b>";
         box.classList.add("show");
       } else if (!w.enforce) {
         box.innerHTML = "<b>TESTA vide:</b> iesniegšana nav ierobežota pēc datuma.";
