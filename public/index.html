@@ -62,16 +62,17 @@
     }
     .noticeBox.show{ display:block; }
 
-    /* ✅ Abonenta koda 8 box — vienmēr ietilpst ekrānā (grid 8 kolonnas) */
+    /* ✅ Abonenta koda 8 box — ŠAURI un KREISAJĀ pusē (desktop), bet vienā rindā arī mobilajā */
     .code-boxes{
-      display:grid;
-      grid-template-columns: repeat(8, minmax(0, 1fr));
+      display:flex;
+      flex-wrap:nowrap;
       gap:8px;
-      width:100%;
+      width:fit-content;        /* neizstiepj */
       max-width:100%;
+      overflow:hidden;
     }
     .code-boxes input{
-      width:100%;
+      width:40px;
       height:46px;
       text-align:center;
       font-size:18px;
@@ -79,17 +80,18 @@
       border-radius:12px;
       border:2px solid #cfd6de;
       padding:0;
+      flex:0 0 40px;
       min-width:0;
     }
     @media (max-width:420px){
       body{ padding:12px; }
       .card{ padding:14px; }
       .code-boxes{ gap:6px; }
-      .code-boxes input{ height:44px; font-size:16px; border-radius:11px; }
+      .code-boxes input{ width:34px; flex-basis:34px; height:44px; font-size:16px; border-radius:11px; }
     }
     @media (max-width:360px){
       .code-boxes{ gap:5px; }
-      .code-boxes input{ height:42px; font-size:15px; border-radius:10px; }
+      .code-boxes input{ width:30px; flex-basis:30px; height:42px; font-size:15px; border-radius:10px; }
     }
 
     /* Address blocks */
@@ -141,7 +143,7 @@
     }
     .btn-primary.disabled{ opacity:.55; cursor:not-allowed; }
 
-    /* ✅ Dzēst adresi (desktop: headerī) */
+    /* Dzēst adresi poga — sarkana */
     .delete-address-btn{
       border-radius:14px;
       border:2px solid #f0c9cf;
@@ -169,7 +171,6 @@
     .readingField{ grid-column:2; }
     .delCell{ grid-column:3; display:flex; justify-content:flex-end; align-items:flex-end; }
 
-    /* Dzēst skaitītāju (desktop: X poga) */
     .del-btn{
       width:42px;
       height:42px;
@@ -182,14 +183,16 @@
     }
     .del-btn.hidden{ display:none; }
 
-    /* ✅ MOBILE: dzēst skaitītāju – garena poga */
+    /* ✅ MOBILE: numurs pilna rinda, rādījums pilna rinda, dzēst pilna rinda */
     @media (max-width:640px){
       .meter-row{
         grid-template-columns: 1fr;
         grid-template-rows: auto auto auto;
         align-items:stretch;
       }
-      .delCell{ justify-content:stretch; }
+      .meterNrField{ grid-column:auto; }
+      .readingField{ grid-column:auto; }
+      .delCell{ grid-column:auto; justify-content:stretch; }
 
       .del-btn{
         width:100%;
@@ -198,17 +201,16 @@
         border-radius:14px;
         text-align:center;
       }
-      .del-btn span{ display:none; } /* paslēpjam X */
+      .del-btn span{ display:none; }
       .del-btn::before{ content:"Dzēst skaitītāju"; }
-      /* ✅ arī Dzēst adresi mobilajā – garena poga */
-      .delete-address-btn{
-        width:100%;
-      }
+
+      /* Dzēst adresi mobilajā — pilna platuma */
       .address-head{
         flex-direction:column;
         align-items:stretch;
         gap:8px;
       }
+      .delete-address-btn{ width:100%; }
       .badge{ width:fit-content; }
     }
 
@@ -289,7 +291,6 @@
     return n;
   }
 
-  function showError(id, show) { document.getElementById(id).classList.toggle("show", !!show); }
   function escapeHtml(s) {
     return (s || "").replace(/[&<>"']/g, (c) => ({
       "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
@@ -318,7 +319,6 @@
     }
   }
 
-  // Abonent boxes
   function initCodeBoxes() {
     const host = $("#abonentaCodeBoxes");
     host.innerHTML = "";
@@ -352,7 +352,6 @@
     return $$("#abonentaCodeBoxes input").map(i => i.value.trim()).join("");
   }
 
-  // Address autocomplete via API
   async function fetchAddressSuggestions(q) {
     const res = await fetch(`/api/addresses?q=${encodeURIComponent(q)}&limit=${CFG.addrLimit}`);
     if (!res.ok) return [];
@@ -409,7 +408,6 @@
     });
   }
 
-  // normalize reading: allow decimal, comma->dot, max 2 decimals
   function normalizeReadingInput(raw) {
     let s = String(raw || '').trim().replace(',', '.');
     s = s.replace(/[^\d.]/g, '');
