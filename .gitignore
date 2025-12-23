@@ -5,4 +5,6 @@ node_modules/
 # runtime data
 submissions.ndjson
 exports/
-Data/
+
+data/*
+!data/adreses.csv
