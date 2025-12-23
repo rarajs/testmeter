@@ -210,7 +210,7 @@ function toCSVRow(fields) {
 
 // ===== addresses file loader (cached) =====
 // IMPORTANT: your "adreses.csv" is actually one address per line (with commas inside address).
-const ADDR_FILE = path.join(__dirname, 'data', 'adreses.csv');
+const ADDR_FILE = path.join(__dirname, 'Public', 'adreses.csv');
 
 let addrCache = {
   loadedAt: 0,
