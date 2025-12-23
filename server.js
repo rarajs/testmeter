@@ -2,22 +2,24 @@
 
 const fs = require('fs');
 const path = require('path');
+
 const express = require('express');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
+const basicAuth = require('basic-auth');
+
 const { Pool } = require('pg');
 const { DateTime } = require('luxon');
 const { v4: uuidv4 } = require('uuid');
-const basicAuth = require('basic-auth');
 
 const app = express();
 
-// ===== ENV =====
+// ===================== ENV =====================
 const PORT = process.env.PORT || 8080;
 const DATABASE_URL = process.env.DATABASE_URL;
 
-const ENFORCE_WINDOW = String(process.env.ENFORCE_WINDOW || '0') === '1';
 const TZ = 'Europe/Riga';
+const ENFORCE_WINDOW = String(process.env.ENFORCE_WINDOW || '0') === '1';
 
 const PUBLIC_ORIGIN = (process.env.PUBLIC_ORIGIN || '').trim(); // https://radijumi.jurmalasudens.lv
 
@@ -26,45 +28,33 @@ const ADMIN_USER = process.env.ADMIN_USER || '';
 const ADMIN_PASS = process.env.ADMIN_PASS || '';
 
 const RATE_LIMIT_SUBMIT_PER_10MIN = parseInt(process.env.RATE_LIMIT_SUBMIT_PER_10MIN || '20', 10);
-const RATE_LIMIT_ADDR_PER_MIN = parseInt(process.env.RATE_LIMIT_ADDR_PER_MIN || '60', 10);
+const RATE_LIMIT_ADDR_PER_MIN = parseInt(process.env.RATE_LIMIT_ADDR_PER_MIN || '120', 10); // slightly higher for UX
 
-// ===== sanity =====
 if (!DATABASE_URL) {
   console.error('FATAL: DATABASE_URL is missing');
   process.exit(1);
 }
 
-// ===== DB pool =====
-const pool = new Pool({
-  connectionString: DATABASE_URL,
-});
+// ===================== DB =====================
+const pool = new Pool({ connectionString: DATABASE_URL });
 
-// ===== middleware =====
+// ===================== middleware =====================
 app.set('trust proxy', 1);
 
-app.use(helmet({
-  contentSecurityPolicy: false,
-}));
+app.use(helmet({ contentSecurityPolicy: false }));
+app.use(express.json({ limit: '256kb' }));
+app.use(express.urlencoded({ extended: false, limit: '256kb' }));
 
-app.use(express.json({ limit: '128kb' }));
-app.use(express.urlencoded({ extended: false, limit: '128kb' }));
+// ===================== block direct CSV access =====================
+// If file is ever in static folder, block it anyway.
+app.get('/adreses.csv', (req, res) => res.status(404).end());
 
-// Block direct access to addresses CSV (security)
-app.get('/adreses.csv', (req, res) => {
-  res.status(404).end();
-});
-// ===== static frontend (IMPORTANT: your repo uses "Public" folder on Linux) =====
-app.use(express.static(path.join(__dirname, 'Public'), {
-  etag: true,
-  maxAge: '1h'
-}));
+// ===================== static frontend =====================
+// Your repo has "public" (lowercase)
+app.use(express.static(path.join(__dirname, 'public'), { etag: true, maxAge: '1h' }));
+app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
-// Always serve index.html on /
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'Public', 'index.html'));
-});
-
-// ===== rate limiters =====
+// ===================== rate limiters =====================
 const submitLimiter = rateLimit({
   windowMs: 10 * 60 * 1000,
   max: RATE_LIMIT_SUBMIT_PER_10MIN,
@@ -79,19 +69,13 @@ const addressesLimiter = rateLimit({
   legacyHeaders: false,
 });
 
-// ===== helpers =====
+// ===================== helpers =====================
 function getSubmissionWindow(now = DateTime.now().setZone(TZ)) {
   const start = now.startOf('month').plus({ days: 24 }).startOf('day'); // 25th 00:00
   const end = now.endOf('month'); // last day 23:59:59.999
   const isOpen = now >= start && now <= end;
 
-  return {
-    timezone: TZ,
-    now: now.toISO(),
-    start: start.toISO(),
-    end: end.toISO(),
-    isOpen,
-  };
+  return { timezone: TZ, now: now.toISO(), start: start.toISO(), end: end.toISO(), isOpen };
 }
 
 function isWindowOpen() {
@@ -99,59 +83,18 @@ function isWindowOpen() {
   return getSubmissionWindow().isOpen;
 }
 
-// Robust subscriber code normalization:
-// - Accept 8 digits OR last 5 digits (prefix 012)
-// - Preserve leading zeros by left-padding if length < 8 and > 5
-// - Tolerate numeric input or spaced input
-function normalizeSubscriberCode(input) {
-  // Some UIs might send an array of digits -> join
-  let s;
-  if (Array.isArray(input)) s = input.join('');
-  else s = String(input ?? '').trim();
-
-  // Keep digits only
-  let digits = s.replace(/\D+/g, '');
-
-  // Accept last 5 digits -> prefix 012
-  if (/^\d{5}$/.test(digits)) return '012' + digits;
-
-  // If 8 digits -> OK
-  if (/^\d{8}$/.test(digits)) return digits;
-
-  // If user entered 8 digits but client sent as number, leading zeros can be lost (7 digits etc.)
-  // We restore by left-padding to 8 (this keeps the "0" in front for billing exports).
-  if (/^\d{6,7}$/.test(digits)) {
-    digits = digits.padStart(8, '0');
-    if (/^\d{8}$/.test(digits)) return digits;
-  }
-
-  return null;
-}
-
-function normalizeMeterNo(meterNo) {
-  const s = String(meterNo ?? '').trim();
-  if (!/^\d+$/.test(s)) return null;
-  return s;
-}
-
-function parseReading(value) {
-  const s = String(value ?? '').trim().replace(',', '.');
-  if (!/^\d+(\.\d{1,2})?$/.test(s)) return null;
-  const num = Number(s);
-  if (!Number.isFinite(num) || num < 0) return null;
-  return s;
-}
-
 function getClientIp(req) {
   return req.ip || null;
 }
 
 function getOriginOrReferer(req) {
-  const origin = (req.get('origin') || '').trim();
-  const referer = (req.get('referer') || '').trim();
-  return { origin, referer };
+  return {
+    origin: (req.get('origin') || '').trim(),
+    referer: (req.get('referer') || '').trim(),
+  };
 }
 
+// Strict: only allow submit from PUBLIC_ORIGIN
 function enforceSameOrigin(req, res) {
   if (!PUBLIC_ORIGIN) {
     return res.status(500).json({ ok: false, error: 'Server misconfigured: PUBLIC_ORIGIN missing' });
@@ -160,20 +103,62 @@ function enforceSameOrigin(req, res) {
   const { origin, referer } = getOriginOrReferer(req);
 
   if (origin) {
-    if (origin !== PUBLIC_ORIGIN) {
-      return res.status(403).json({ ok: false, error: 'Forbidden origin' });
-    }
+    if (origin !== PUBLIC_ORIGIN) return res.status(403).json({ ok: false, error: 'Forbidden origin' });
     return null;
   }
-
   if (referer) {
-    if (!referer.startsWith(PUBLIC_ORIGIN + '/')) {
-      return res.status(403).json({ ok: false, error: 'Forbidden referer' });
-    }
+    if (!referer.startsWith(PUBLIC_ORIGIN + '/')) return res.status(403).json({ ok: false, error: 'Forbidden referer' });
     return null;
   }
 
   return res.status(403).json({ ok: false, error: 'Missing origin/referer' });
+}
+
+// CSV injection guard
+function csvSanitize(value) {
+  const s = value == null ? '' : String(value);
+  return /^[=+\-@]/.test(s) ? "'" + s : s;
+}
+function csvEscape(value) {
+  const s = value == null ? '' : String(value);
+  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+function toCSVRow(fields) {
+  return fields.map(v => csvEscape(csvSanitize(v))).join(',') + '\n';
+}
+
+// Subscriber code – COMPAT layer
+// Accepts:
+// - new: subscriber_code
+// - old: abonenta_numurs
+// - also: subscriberCode
+// Returns 8-digit string with leading zeros preserved.
+function pickSubscriberCode(body) {
+  const v = body?.subscriber_code ?? body?.abonenta_numurs ?? body?.subscriberCode ?? body?.subscriber;
+  const digits = String(v ?? '').trim().replace(/\D+/g, '');
+
+  if (/^\d{8}$/.test(digits)) return digits;
+  if (/^\d{5}$/.test(digits)) return '012' + digits;
+
+  // if numeric input lost leading zeros -> restore to 8
+  if (/^\d{6,7}$/.test(digits)) return digits.padStart(8, '0');
+
+  return null;
+}
+
+// Reading parser: accept 123.45 or 123,45, max 2 decimals, >=0
+function parseReading(value) {
+  const s = String(value ?? '').trim().replace(',', '.');
+  if (!/^\d+(\.\d{1,2})?$/.test(s)) return null;
+  const num = Number(s);
+  if (!Number.isFinite(num) || num < 0) return null;
+  return s; // keep as string, DB numeric will handle scale
+}
+
+function normalizeMeterNo(v) {
+  const s = String(v ?? '').trim();
+  if (!/^\d+$/.test(s)) return null;
+  return s;
 }
 
 function requireAdminBearer(req, res, next) {
@@ -195,46 +180,19 @@ function requireBasicAuth(req, res, next) {
   next();
 }
 
-// CSV injection guard: if starts with = + - @, prefix with apostrophe
-function csvSanitize(value) {
-  const s = value == null ? '' : String(value);
-  if (/^[=+\-@]/.test(s)) return "'" + s;
-  return s;
-}
-
-function csvEscape(value) {
-  const s = value == null ? '' : String(value);
-  if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
-  return s;
-}
-
-function toCSVRow(fields) {
-  return fields.map(v => csvEscape(csvSanitize(v))).join(',') + '\n';
-}
-
-// ===== addresses file loader (cached) =====
-// IMPORTANT: your "adreses.csv" is actually one address per line (with commas inside address).
+// ===================== addresses loader =====================
+// IMPORTANT: your repo contains Data/adreses.csv (uppercase D)
 const ADDR_FILE = path.join(__dirname, 'Data', 'adreses.csv');
 
-let addrCache = {
-  loadedAt: 0,
-  rows: [], // { norm, original }
-};
+let addrCache = { loadedAt: 0, rows: [] };
 
 function normalizeForSearch(s) {
-  return String(s || '')
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, ' ');
+  return String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
 function loadAddressesIfNeeded() {
   if (!fs.existsSync(ADDR_FILE)) {
-    // If file is missing on server, autocomplete returns empty.
-    // We keep it silent but also log once per start.
-    if (addrCache.loadedAt === 0) {
-      console.warn(`ADDR_FILE missing on server: ${ADDR_FILE}`);
-    }
+    if (addrCache.loadedAt === 0) console.warn(`ADDR_FILE missing on server: ${ADDR_FILE}`);
     addrCache = { loadedAt: Date.now(), rows: [] };
     return;
   }
@@ -245,20 +203,12 @@ function loadAddressesIfNeeded() {
   // If already loaded and file not changed, keep cache
   if (addrCache.loadedAt && addrCache.loadedAt >= mtime && addrCache.rows.length) return;
 
-  const content = fs.readFileSync(ADDR_FILE, 'utf8');
-
-  // remove BOM if present
-  const cleaned = content.replace(/^\uFEFF/, '');
-
-  const lines = cleaned
-    .split(/\r?\n/)
-    .map(l => l.trim())
-    .filter(Boolean);
+  const content = fs.readFileSync(ADDR_FILE, 'utf8').replace(/^\uFEFF/, '');
+  const lines = content.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
 
   const rows = [];
   for (const line of lines) {
-    // Your file is "one line = one address". Do NOT split by commas.
-    // If ever semicolon-separated appears, take left side, else take full line.
+    // Your file is "one line = one address" (commas inside). Keep full line.
     const addr = line.includes(';') ? line.split(';')[0].trim() : line.trim();
     if (!addr) continue;
     rows.push({ norm: normalizeForSearch(addr), original: addr });
@@ -268,21 +218,38 @@ function loadAddressesIfNeeded() {
   console.log(`ADDR_FILE loaded: ${rows.length} addresses`);
 }
 
-// ===== routes =====
+// ===================== routes =====================
+
+app.get('/health', async (req, res) => {
+  try {
+    const r = await pool.query('SELECT 1 AS ok');
+    res.json({ ok: true, db: r.rows[0].ok === 1 });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: 'db failed' });
+  }
+});
+
+// window – return BOTH formats (new + old)
 app.get('/api/window', (req, res) => {
   const info = getSubmissionWindow();
   res.json({
     ok: true,
     enforce: ENFORCE_WINDOW,
-    ...info,
+    timezone: TZ,
+    now: info.now,
+    start: info.start,
+    end: info.end,
+    isOpen: info.isOpen,      // new
+    is_open: info.isOpen,     // old frontend compat
   });
 });
 
+// addresses – return BOTH formats (items + results)
 app.get('/api/addresses', addressesLimiter, (req, res) => {
   loadAddressesIfNeeded();
 
   const q = String(req.query.q || '').trim();
-  if (q.length < 2) return res.json({ ok: true, results: [] });
+  if (!q) return res.json({ ok: true, results: [], items: [] });
 
   const nq = normalizeForSearch(q);
 
@@ -293,11 +260,13 @@ app.get('/api/addresses', addressesLimiter, (req, res) => {
       if (results.length >= 20) break;
     }
   }
-  res.json({ ok: true, results });
+
+  res.json({ ok: true, results, items: results });
 });
 
+// submit – COMPAT with old frontend + new backend payloads
 app.post('/api/submit', submitLimiter, async (req, res) => {
-  // Origin/Referer check (SPAM protection)
+  // Origin/Referer check
   const originError = enforceSameOrigin(req, res);
   if (originError) return;
 
@@ -307,50 +276,45 @@ app.post('/api/submit', submitLimiter, async (req, res) => {
     return res.status(403).json({ ok: false, error: 'Submission window closed', window: info });
   }
 
-  // Honeypot
-  const hp = String(req.body.website || '').trim();
-  if (hp) {
-    return res.status(400).json({ ok: false, error: 'Rejected' });
-  }
+  // Honeypot (old/new: allow both)
+  const hp = String(req.body.website || req.body.honeypot || '').trim();
+  if (hp) return res.status(400).json({ ok: false, error: 'Rejected' });
 
-  // Be compatible with possible frontend keys
-  const subscriber_code = normalizeSubscriberCode(
-    req.body.subscriber_code ?? req.body.subscriberCode ?? req.body.subscriber
-  );
-
+  // Subscriber code (old: abonenta_numurs, new: subscriber_code)
+  const subscriber_code = pickSubscriberCode(req.body);
   if (!subscriber_code) {
-    console.warn('Invalid subscriber_code received:', req.body.subscriber_code, req.body.subscriberCode, req.body.subscriber);
+    console.warn('Invalid subscriber_code. Keys:', Object.keys(req.body || {}));
+    console.warn('Raw values:', req.body?.subscriber_code, req.body?.abonenta_numurs, req.body?.subscriberCode);
     return res.status(400).json({ ok: false, error: 'Invalid subscriber_code (must be 8 digits)' });
   }
 
-  const address = String(req.body.address || '').trim();
+  // Lines:
+  // new expects: address + lines [{meter_no, reading, previous_reading?}]
+  // old sends:  lines [{adrese, skaititaja_numurs, radijums}]
+  const rawLines = Array.isArray(req.body.lines) ? req.body.lines : [];
+  if (!rawLines.length || rawLines.length > 50) {
+    return res.status(400).json({ ok: false, error: 'Invalid lines' });
+  }
+
+  // Address:
+  // new: req.body.address
+  // old: per-line adrese. We will store submission address = first line's adrese.
+  const bodyAddress = String(req.body.address || '').trim();
+  const lineAddress = String(rawLines[0]?.adrese || rawLines[0]?.address || '').trim();
+  const address = (bodyAddress || lineAddress || '').trim();
+
   if (!address || address.length < 3 || address.length > 300) {
     return res.status(400).json({ ok: false, error: 'Invalid address' });
   }
 
-  const lines = Array.isArray(req.body.lines) ? req.body.lines : [];
-  if (!lines.length || lines.length > 50) {
-    return res.status(400).json({ ok: false, error: 'Invalid lines' });
-  }
-
-  // Idempotency key
-  let client_submission_id = String(req.body.client_submission_id || '').trim();
-  if (client_submission_id) {
-    if (!/^[0-9a-fA-F-]{36}$/.test(client_submission_id)) {
-      return res.status(400).json({ ok: false, error: 'Invalid client_submission_id' });
-    }
-  } else {
-    client_submission_id = uuidv4();
-  }
-
-  // Validate lines
+  // Normalize lines
   const cleanLines = [];
-  for (const l of lines) {
-    const meter_no = normalizeMeterNo(l.meter_no);
+  for (const l of rawLines) {
+    const meter_no = normalizeMeterNo(l.meter_no ?? l.skaititaja_numurs ?? l.skaititajaNr);
     if (!meter_no) return res.status(400).json({ ok: false, error: 'Invalid meter_no (digits only)' });
 
-    const readingStr = parseReading(l.reading);
-    if (readingStr == null) return res.status(400).json({ ok: false, error: 'Invalid reading (0.., max 2 decimals)' });
+    const readingStr = parseReading(l.reading ?? l.radijums);
+    if (readingStr == null) return res.status(400).json({ ok: false, error: 'Invalid reading (max 2 decimals, >=0)' });
 
     let prevStr = null;
     if (l.previous_reading != null && String(l.previous_reading).trim() !== '') {
@@ -359,11 +323,17 @@ app.post('/api/submit', submitLimiter, async (req, res) => {
       prevStr = p;
     }
 
-    cleanLines.push({
-      meter_no,
-      reading: readingStr,
-      previous_reading: prevStr,
-    });
+    cleanLines.push({ meter_no, reading: readingStr, previous_reading: prevStr });
+  }
+
+  // Idempotency key
+  let client_submission_id = String(req.body.client_submission_id || req.body.clientSubmissionId || '').trim();
+  if (client_submission_id) {
+    if (!/^[0-9a-fA-F-]{36}$/.test(client_submission_id)) {
+      return res.status(400).json({ ok: false, error: 'Invalid client_submission_id' });
+    }
+  } else {
+    client_submission_id = uuidv4();
   }
 
   const ip = getClientIp(req);
@@ -386,6 +356,9 @@ app.post('/api/submit', submitLimiter, async (req, res) => {
     const clientMeta = {
       referer: referer || null,
       origin: origin || null,
+      compat: {
+        abonenta_numurs: req.body?.abonenta_numurs ?? null,
+      }
     };
 
     const subRes = await client.query(insertSubmissionSql, [
@@ -400,7 +373,7 @@ app.post('/api/submit', submitLimiter, async (req, res) => {
 
     const submissionId = subRes.rows[0].id;
 
-    // Idempotency: replace lines for the same client_submission_id
+    // Replace lines for idempotency
     await client.query('DELETE FROM submission_lines WHERE submission_id = $1', [submissionId]);
 
     const insertLineSql = `
@@ -409,16 +382,10 @@ app.post('/api/submit', submitLimiter, async (req, res) => {
     `;
 
     for (const l of cleanLines) {
-      await client.query(insertLineSql, [
-        submissionId,
-        l.meter_no,
-        l.previous_reading,
-        l.reading,
-      ]);
+      await client.query(insertLineSql, [submissionId, l.meter_no, l.previous_reading, l.reading]);
     }
 
     await client.query('COMMIT');
-
     return res.json({ ok: true, submission_id: submissionId, client_submission_id });
   } catch (err) {
     try { await client.query('ROLLBACK'); } catch (_) {}
@@ -429,15 +396,9 @@ app.post('/api/submit', submitLimiter, async (req, res) => {
   }
 });
 
-// Admin export: API with Bearer token
-app.get('/api/export.csv', requireAdminBearer, async (req, res) => {
-  await exportCsv(res);
-});
-
-// Admin export: browser with Basic Auth
-app.get('/admin/export.csv', requireBasicAuth, async (req, res) => {
-  await exportCsv(res);
-});
+// Exports from DB
+app.get('/api/export.csv', requireAdminBearer, async (req, res) => exportCsv(res));
+app.get('/admin/export.csv', requireBasicAuth, async (req, res) => exportCsv(res));
 
 async function exportCsv(res) {
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
@@ -503,17 +464,7 @@ async function exportCsv(res) {
   }
 }
 
-// Health endpoint
-app.get('/health', async (req, res) => {
-  try {
-    const r = await pool.query('SELECT 1 AS ok');
-    res.json({ ok: true, db: r.rows[0].ok === 1 });
-  } catch (e) {
-    res.status(500).json({ ok: false, error: 'db failed' });
-  }
-});
-
-// ===== start =====
+// ===================== start =====================
 app.listen(PORT, () => {
   if (!PUBLIC_ORIGIN) {
     console.warn('WARN: PUBLIC_ORIGIN is not set (Origin/Referer checks will be strict-failing submit).');
