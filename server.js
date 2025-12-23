@@ -13,13 +13,13 @@ const basicAuth = require('basic-auth');
 const app = express();
 
 // ===== ENV =====
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 8080;
 const DATABASE_URL = process.env.DATABASE_URL;
 
 const ENFORCE_WINDOW = String(process.env.ENFORCE_WINDOW || '0') === '1';
 const TZ = 'Europe/Riga';
 
-const PUBLIC_ORIGIN = (process.env.PUBLIC_ORIGIN || '').trim(); // e.g. https://radijumi.jurmalasudens.lv
+const PUBLIC_ORIGIN = (process.env.PUBLIC_ORIGIN || '').trim(); // https://radijumi.jurmalasudens.lv
 
 const ADMIN_KEY = (process.env.ADMIN_KEY || '').trim();
 const ADMIN_USER = process.env.ADMIN_USER || '';
@@ -33,35 +33,33 @@ if (!DATABASE_URL) {
   console.error('FATAL: DATABASE_URL is missing');
   process.exit(1);
 }
-if (!PUBLIC_ORIGIN) {
-  console.warn('WARN: PUBLIC_ORIGIN is not set (Origin/Referer checks will be strict-failing submit).');
-}
 
 // ===== DB pool =====
 const pool = new Pool({
   connectionString: DATABASE_URL,
-  // Railway internal usually uses plain connection; SSL typically not required inside Railway.
-  // If you later move to public network, you may need ssl: { rejectUnauthorized: false }
 });
 
 // ===== middleware =====
-app.set('trust proxy', 1); // Railway is behind a proxy; needed for correct IP + rate-limit
+app.set('trust proxy', 1);
 
 app.use(helmet({
-  contentSecurityPolicy: false, // keep simple; frontend is static; adjust if you want CSP
+  contentSecurityPolicy: false,
 }));
 
-app.use(express.json({ limit: '128kb' })); // protect from huge payloads
+app.use(express.json({ limit: '128kb' }));
 app.use(express.urlencoded({ extended: false, limit: '128kb' }));
 
-// Static frontend
+// ===== static frontend (IMPORTANT: your repo uses "Public" folder on Linux) =====
 app.use(express.static(path.join(__dirname, 'Public'), {
   etag: true,
   maxAge: '1h'
 }));
+
+// Always serve index.html on /
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'Public', 'index.html'));
 });
+
 // ===== rate limiters =====
 const submitLimiter = rateLimit({
   windowMs: 10 * 60 * 1000,
@@ -79,7 +77,6 @@ const addressesLimiter = rateLimit({
 
 // ===== helpers =====
 function getSubmissionWindow(now = DateTime.now().setZone(TZ)) {
-  // Window: from day 25 00:00 to last day 23:59:59 (Europe/Riga)
   const start = now.startOf('month').plus({ days: 24 }).startOf('day'); // 25th 00:00
   const end = now.endOf('month'); // last day 23:59:59.999
   const isOpen = now >= start && now <= end;
@@ -98,31 +95,50 @@ function isWindowOpen() {
   return getSubmissionWindow().isOpen;
 }
 
-function normalizeSubscriberCode(code) {
-  // Backend requirement: MUST be 8 digits
-  const s = String(code || '').trim();
-  if (!/^\d{8}$/.test(s)) return null;
-  return s;
+// Robust subscriber code normalization:
+// - Accept 8 digits OR last 5 digits (prefix 012)
+// - Preserve leading zeros by left-padding if length < 8 and > 5
+// - Tolerate numeric input or spaced input
+function normalizeSubscriberCode(input) {
+  // Some UIs might send an array of digits -> join
+  let s;
+  if (Array.isArray(input)) s = input.join('');
+  else s = String(input ?? '').trim();
+
+  // Keep digits only
+  let digits = s.replace(/\D+/g, '');
+
+  // Accept last 5 digits -> prefix 012
+  if (/^\d{5}$/.test(digits)) return '012' + digits;
+
+  // If 8 digits -> OK
+  if (/^\d{8}$/.test(digits)) return digits;
+
+  // If user entered 8 digits but client sent as number, leading zeros can be lost (7 digits etc.)
+  // We restore by left-padding to 8 (this keeps the "0" in front for billing exports).
+  if (/^\d{6,7}$/.test(digits)) {
+    digits = digits.padStart(8, '0');
+    if (/^\d{8}$/.test(digits)) return digits;
+  }
+
+  return null;
 }
 
 function normalizeMeterNo(meterNo) {
-  const s = String(meterNo || '').trim();
+  const s = String(meterNo ?? '').trim();
   if (!/^\d+$/.test(s)) return null;
   return s;
 }
 
 function parseReading(value) {
-  // Accept "123.45" or "123,45" up to 2 decimals
-  const s = String(value || '').trim().replace(',', '.');
+  const s = String(value ?? '').trim().replace(',', '.');
   if (!/^\d+(\.\d{1,2})?$/.test(s)) return null;
   const num = Number(s);
   if (!Number.isFinite(num) || num < 0) return null;
-  // Keep 2 decimals (DB numeric(12,2) will enforce anyway)
   return s;
 }
 
 function getClientIp(req) {
-  // Express trust proxy enabled; req.ip should be ok
   return req.ip || null;
 }
 
@@ -133,14 +149,12 @@ function getOriginOrReferer(req) {
 }
 
 function enforceSameOrigin(req, res) {
-  // Only enforce for submit route (public form)
   if (!PUBLIC_ORIGIN) {
     return res.status(500).json({ ok: false, error: 'Server misconfigured: PUBLIC_ORIGIN missing' });
   }
 
   const { origin, referer } = getOriginOrReferer(req);
 
-  // If Origin header exists: must match exactly
   if (origin) {
     if (origin !== PUBLIC_ORIGIN) {
       return res.status(403).json({ ok: false, error: 'Forbidden origin' });
@@ -148,7 +162,6 @@ function enforceSameOrigin(req, res) {
     return null;
   }
 
-  // If no Origin, fall back to Referer host prefix check
   if (referer) {
     if (!referer.startsWith(PUBLIC_ORIGIN + '/')) {
       return res.status(403).json({ ok: false, error: 'Forbidden referer' });
@@ -156,7 +169,6 @@ function enforceSameOrigin(req, res) {
     return null;
   }
 
-  // If neither present -> reject (prevents random scripts/curl from anywhere)
   return res.status(403).json({ ok: false, error: 'Missing origin/referer' });
 }
 
@@ -196,11 +208,13 @@ function toCSVRow(fields) {
   return fields.map(v => csvEscape(csvSanitize(v))).join(',') + '\n';
 }
 
-// ===== addresses.csv loader (cached) =====
+// ===== addresses file loader (cached) =====
+// IMPORTANT: your "adreses.csv" is actually one address per line (with commas inside address).
 const ADDR_FILE = path.join(__dirname, 'data', 'adreses.csv');
+
 let addrCache = {
   loadedAt: 0,
-  rows: [], // { norm: '...', original: '...' }
+  rows: [], // { norm, original }
 };
 
 function normalizeForSearch(s) {
@@ -211,30 +225,46 @@ function normalizeForSearch(s) {
 }
 
 function loadAddressesIfNeeded() {
-  const stat = fs.existsSync(ADDR_FILE) ? fs.statSync(ADDR_FILE) : null;
-  if (!stat) {
+  if (!fs.existsSync(ADDR_FILE)) {
+    // If file is missing on server, autocomplete returns empty.
+    // We keep it silent but also log once per start.
+    if (addrCache.loadedAt === 0) {
+      console.warn(`ADDR_FILE missing on server: ${ADDR_FILE}`);
+    }
     addrCache = { loadedAt: Date.now(), rows: [] };
     return;
   }
+
+  const stat = fs.statSync(ADDR_FILE);
   const mtime = stat.mtimeMs;
+
+  // If already loaded and file not changed, keep cache
   if (addrCache.loadedAt && addrCache.loadedAt >= mtime && addrCache.rows.length) return;
 
   const content = fs.readFileSync(ADDR_FILE, 'utf8');
-  const lines = content.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
 
-  // Very simple CSV reading:
-  // Expect: one address per line OR "address;..." - we keep first column
+  // remove BOM if present
+  const cleaned = content.replace(/^\uFEFF/, '');
+
+  const lines = cleaned
+    .split(/\r?\n/)
+    .map(l => l.trim())
+    .filter(Boolean);
+
   const rows = [];
   for (const line of lines) {
-    const firstCol = line.split(/[;,]/)[0].trim();
-    if (firstCol) rows.push({ norm: normalizeForSearch(firstCol), original: firstCol });
+    // Your file is "one line = one address". Do NOT split by commas.
+    // If ever semicolon-separated appears, take left side, else take full line.
+    const addr = line.includes(';') ? line.split(';')[0].trim() : line.trim();
+    if (!addr) continue;
+    rows.push({ norm: normalizeForSearch(addr), original: addr });
   }
 
   addrCache = { loadedAt: Date.now(), rows };
+  console.log(`ADDR_FILE loaded: ${rows.length} addresses`);
 }
 
 // ===== routes =====
-
 app.get('/api/window', (req, res) => {
   const info = getSubmissionWindow();
   res.json({
@@ -246,11 +276,12 @@ app.get('/api/window', (req, res) => {
 
 app.get('/api/addresses', addressesLimiter, (req, res) => {
   loadAddressesIfNeeded();
+
   const q = String(req.query.q || '').trim();
   if (q.length < 2) return res.json({ ok: true, results: [] });
 
   const nq = normalizeForSearch(q);
-  // return up to 20 matches
+
   const results = [];
   for (const r of addrCache.rows) {
     if (r.norm.includes(nq)) {
@@ -264,7 +295,7 @@ app.get('/api/addresses', addressesLimiter, (req, res) => {
 app.post('/api/submit', submitLimiter, async (req, res) => {
   // Origin/Referer check (SPAM protection)
   const originError = enforceSameOrigin(req, res);
-  if (originError) return; // response already sent
+  if (originError) return;
 
   // Time window check
   if (!isWindowOpen()) {
@@ -272,15 +303,19 @@ app.post('/api/submit', submitLimiter, async (req, res) => {
     return res.status(403).json({ ok: false, error: 'Submission window closed', window: info });
   }
 
-  // Honeypot (frontend should send e.g. "website" empty)
+  // Honeypot
   const hp = String(req.body.website || '').trim();
   if (hp) {
-    // treat as spam
     return res.status(400).json({ ok: false, error: 'Rejected' });
   }
 
-  const subscriber_code = normalizeSubscriberCode(req.body.subscriber_code);
+  // Be compatible with possible frontend keys
+  const subscriber_code = normalizeSubscriberCode(
+    req.body.subscriber_code ?? req.body.subscriberCode ?? req.body.subscriber
+  );
+
   if (!subscriber_code) {
+    console.warn('Invalid subscriber_code received:', req.body.subscriber_code, req.body.subscriberCode, req.body.subscriber);
     return res.status(400).json({ ok: false, error: 'Invalid subscriber_code (must be 8 digits)' });
   }
 
@@ -294,10 +329,9 @@ app.post('/api/submit', submitLimiter, async (req, res) => {
     return res.status(400).json({ ok: false, error: 'Invalid lines' });
   }
 
-  // Idempotency key (client_submission_id)
+  // Idempotency key
   let client_submission_id = String(req.body.client_submission_id || '').trim();
   if (client_submission_id) {
-    // Basic UUID v4 format check (allow any UUID)
     if (!/^[0-9a-fA-F-]{36}$/.test(client_submission_id)) {
       return res.status(400).json({ ok: false, error: 'Invalid client_submission_id' });
     }
@@ -337,8 +371,6 @@ app.post('/api/submit', submitLimiter, async (req, res) => {
   try {
     await client.query('BEGIN');
 
-    // Insert submission with idempotency
-    // If client_submission_id already exists -> return existing id
     const insertSubmissionSql = `
       INSERT INTO submissions (client_submission_id, subscriber_code, address, source_origin, user_agent, ip, client_meta)
       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)
@@ -348,7 +380,6 @@ app.post('/api/submit', submitLimiter, async (req, res) => {
     `;
 
     const clientMeta = {
-      // Keep minimal. Add more if needed.
       referer: referer || null,
       origin: origin || null,
     };
@@ -365,14 +396,14 @@ app.post('/api/submit', submitLimiter, async (req, res) => {
 
     const submissionId = subRes.rows[0].id;
 
-    // If this was a repeated submit (same client_submission_id), we should avoid duplicate lines:
-    // simplest: delete existing lines for that submission id, then insert fresh.
+    // Idempotency: replace lines for the same client_submission_id
     await client.query('DELETE FROM submission_lines WHERE submission_id = $1', [submissionId]);
 
     const insertLineSql = `
       INSERT INTO submission_lines (submission_id, meter_no, previous_reading, reading)
       VALUES ($1, $2, $3::numeric, $4::numeric)
     `;
+
     for (const l of cleanLines) {
       await client.query(insertLineSql, [
         submissionId,
@@ -384,7 +415,6 @@ app.post('/api/submit', submitLimiter, async (req, res) => {
 
     await client.query('COMMIT');
 
-    // Critical: respond only after COMMIT
     return res.json({ ok: true, submission_id: submissionId, client_submission_id });
   } catch (err) {
     try { await client.query('ROLLBACK'); } catch (_) {}
@@ -405,13 +435,10 @@ app.get('/admin/export.csv', requireBasicAuth, async (req, res) => {
   await exportCsv(res);
 });
 
-// ===== export implementation =====
 async function exportCsv(res) {
-  // Stream CSV response
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', 'attachment; filename="export.csv"');
 
-  // Header row
   res.write(toCSVRow([
     'submission_id',
     'client_submission_id',
@@ -472,7 +499,7 @@ async function exportCsv(res) {
   }
 }
 
-// ===== health =====
+// Health endpoint
 app.get('/health', async (req, res) => {
   try {
     const r = await pool.query('SELECT 1 AS ok');
@@ -484,5 +511,8 @@ app.get('/health', async (req, res) => {
 
 // ===== start =====
 app.listen(PORT, () => {
+  if (!PUBLIC_ORIGIN) {
+    console.warn('WARN: PUBLIC_ORIGIN is not set (Origin/Referer checks will be strict-failing submit).');
+  }
   console.log(`testmeter listening on :${PORT} (enforceWindow=${ENFORCE_WINDOW}, tz=${TZ})`);
 });
