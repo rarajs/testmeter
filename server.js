@@ -264,7 +264,15 @@ app.get('/api/window', (req, res) => {
   });
 });
 
-// addresses – token search + return BOTH formats (items + results)
+function matchToken(words, t) {
+  if (/^\d+$/.test(t)) {
+    // number must be a whole word (e.g. "12")
+    return words.includes(t);
+  }
+  // text token must match start of a word (prefix)
+  return words.some(w => w.startsWith(t));
+}
+
 app.get('/api/addresses', addressesLimiter, (req, res) => {
   loadAddressesIfNeeded();
 
@@ -276,8 +284,9 @@ app.get('/api/addresses', addressesLimiter, (req, res) => {
 
   const results = [];
   for (const r of addrCache.rows) {
-    // every token must exist somewhere in address
-    if (tokens.every(t => r.norm.includes(t))) {
+    const words = r.norm.split(' ').filter(Boolean);
+
+    if (tokens.every(t => matchToken(words, t))) {
       results.push(r.original);
       if (results.length >= 20) break;
     }
