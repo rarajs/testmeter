@@ -62,12 +62,13 @@
     }
     .noticeBox.show{ display:block; }
 
-    /* ✅ Abonenta koda 8 box — ŠAURI un KREISAJĀ pusē (desktop), bet vienā rindā arī mobilajā */
+    /* ===== Abonenta koda 8 kvadrātiņi ===== */
+    /* Desktop: šauri, kreisajā pusē, neizstiepti */
     .code-boxes{
       display:flex;
       flex-wrap:nowrap;
       gap:8px;
-      width:fit-content;        /* neizstiepj */
+      width:fit-content;
       max-width:100%;
       overflow:hidden;
     }
@@ -83,18 +84,36 @@
       flex:0 0 40px;
       min-width:0;
     }
+
+    /* Mobile: elastīgi, lai visas 8 vienmēr ietilpst */
     @media (max-width:420px){
       body{ padding:12px; }
       .card{ padding:14px; }
-      .code-boxes{ gap:6px; }
-      .code-boxes input{ width:34px; flex-basis:34px; height:44px; font-size:16px; border-radius:11px; }
+
+      .code-boxes{
+        width:100%;
+        gap:5px;
+      }
+      .code-boxes input{
+        width:auto;
+        flex:1 1 0;
+        flex-basis:0;
+        min-width:0;
+        height:44px;
+        font-size:16px;
+        border-radius:11px;
+      }
     }
     @media (max-width:360px){
-      .code-boxes{ gap:5px; }
-      .code-boxes input{ width:30px; flex-basis:30px; height:42px; font-size:15px; border-radius:10px; }
+      .code-boxes{ gap:4px; }
+      .code-boxes input{
+        height:42px;
+        font-size:15px;
+        border-radius:10px;
+      }
     }
 
-    /* Address blocks */
+    /* ===== Address blocks ===== */
     .address-block{
       border:2px solid #e3e7ec;
       border-radius:18px;
@@ -157,10 +176,10 @@
     .delete-address-btn.hidden{ display:none; }
     .delete-address-btn:disabled{ opacity:.35; cursor:not-allowed; }
 
-    /* Meters */
+    /* ===== Meters ===== */
     .meters{ margin-top:10px; display:flex; flex-direction:column; gap:10px; }
 
-    /* ✅ DESKTOP: 2 lauki + dzēst poga labajā pusē */
+    /* Desktop: 2 lauki + dzēst labajā pusē */
     .meter-row{
       display:grid;
       grid-template-columns: 1fr 1fr 56px;
@@ -171,6 +190,7 @@
     .readingField{ grid-column:2; }
     .delCell{ grid-column:3; display:flex; justify-content:flex-end; align-items:flex-end; }
 
+    /* Dzēst skaitītāju poga */
     .del-btn{
       width:42px;
       height:42px;
@@ -183,7 +203,7 @@
     }
     .del-btn.hidden{ display:none; }
 
-    /* ✅ MOBILE: numurs pilna rinda, rādījums pilna rinda, dzēst pilna rinda */
+    /* Mobile: Nr pilna rinda, Rādījums pilna rinda, Dzēst pilna rinda */
     @media (max-width:640px){
       .meter-row{
         grid-template-columns: 1fr;
@@ -204,7 +224,7 @@
       .del-btn span{ display:none; }
       .del-btn::before{ content:"Dzēst skaitītāju"; }
 
-      /* Dzēst adresi mobilajā — pilna platuma */
+      /* Dzēst adresi mobilajā – pilna platuma, badge apakšā */
       .address-head{
         flex-direction:column;
         align-items:stretch;
@@ -223,7 +243,16 @@
       display:none; max-height:320px; overflow-y:auto;
     }
     .suggestions.show{ display:block; }
-    .sitem{ width:100%; text-align:left; padding:10px 12px; background:#fff; border:none; cursor:pointer; font-size:13px; line-height:1.25; }
+    .sitem{
+      width:100%;
+      text-align:left;
+      padding:10px 12px;
+      background:#fff;
+      border:none;
+      cursor:pointer;
+      font-size:13px;
+      line-height:1.25;
+    }
     .sitem:hover{ background:#eef3f8; }
 
     .infoBox{
@@ -273,6 +302,7 @@
     readingRegex: /^\d+([.,]\d{1,2})?$/,
     addrMinChars: 1,
     addrLimit: 12,
+    // first meter row cannot be deleted
     meterDeleteShownFromIndex: 1
   };
 
@@ -319,6 +349,7 @@
     }
   }
 
+  // 8-digit boxes
   function initCodeBoxes() {
     const host = $("#abonentaCodeBoxes");
     host.innerHTML = "";
@@ -352,6 +383,7 @@
     return $$("#abonentaCodeBoxes input").map(i => i.value.trim()).join("");
   }
 
+  // Address autocomplete via API
   async function fetchAddressSuggestions(q) {
     const res = await fetch(`/api/addresses?q=${encodeURIComponent(q)}&limit=${CFG.addrLimit}`);
     if (!res.ok) return [];
@@ -408,6 +440,7 @@
     });
   }
 
+  // normalize reading: allow decimal, comma->dot, max 2 decimals
   function normalizeReadingInput(raw) {
     let s = String(raw || '').trim().replace(',', '.');
     s = s.replace(/[^\d.]/g, '');
@@ -427,6 +460,7 @@
       if (i === 0) { badge.classList.add("hidden"); }
       else { badge.classList.remove("hidden"); badge.textContent = `Adrese ${i+1}`; }
 
+      // first address cannot be deleted
       const delBtn = $(".delete-address-btn", block);
       if (delBtn) {
         delBtn.classList.toggle("hidden", i === 0);
@@ -631,11 +665,7 @@
         radijums: normalizeReadingInput(ln.radijums_raw)
       }));
 
-    const payload = {
-      abonenta_numurs: abon,
-      lines,
-      website: ""
-    };
+    const payload = { abonenta_numurs: abon, lines, website: "" };
 
     const res = await fetch("/api/submit", {
       method: "POST",
