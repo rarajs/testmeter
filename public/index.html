@@ -17,35 +17,58 @@
     .banner{border-radius:10px; padding:10px 12px; margin:10px 0 16px; font-size:14px;}
     .banner.danger{background:#fff1f2; border:1px solid #fecdd3; color:#9f1239;}
     .banner.info{background:#eef2ff; border:1px solid #c7d2fe; color:#3730a3;}
-    .row{display:flex; gap:12px; flex-wrap:wrap;}
-    .col{flex:1 1 320px;}
+
+    .sectionTitle{margin:18px 0 8px; font-weight:700; font-size:14px;}
     label{display:block; font-size:13px; color:var(--muted); margin:10px 0 6px;}
-    input[type="text"], input[type="number"]{
+
+    /* 8-digit boxes (narrow) */
+    .digits{display:flex; gap:6px; align-items:center; flex-wrap:wrap;}
+    .digit{
+      width:40px;
+      height:46px;
+      text-align:center;
+      font-size:18px;
+      border:1px solid var(--line);
+      border-radius:10px;
+      outline:none;
+      box-sizing:border-box;
+    }
+    .digit:focus{border-color:#93c5fd; box-shadow:0 0 0 3px rgba(147,197,253,.35);}
+
+    input[type="text"]{
       width:100%; box-sizing:border-box; border:1px solid var(--line);
       border-radius:10px; padding:12px 12px; font-size:16px; outline:none;
     }
-    input:focus{border-color:#93c5fd; box-shadow:0 0 0 3px rgba(147,197,253,.35);}
-    .digits{display:flex; gap:6px; align-items:center;}
-    .digit{width:44px; text-align:center; font-size:18px; padding:12px 0; border:1px solid var(--line); border-radius:10px;}
-    .mode{display:flex; gap:14px; align-items:center; margin-top:6px; color:var(--muted); font-size:13px;}
-    .mode input{transform:scale(1.1);}
-    .sectionTitle{margin:18px 0 8px; font-weight:700; font-size:14px;}
+    input[type="text"]:focus{border-color:#93c5fd; box-shadow:0 0 0 3px rgba(147,197,253,.35);}
+
     .addrBlock{border:1px solid var(--line); border-radius:12px; padding:12px; margin-top:10px;}
     .addrHeader{display:flex; justify-content:space-between; align-items:center; gap:10px;}
+    .addrHeader .title{font-weight:700;}
+
     .btn{background:var(--btn); color:#fff; border:none; padding:10px 12px; border-radius:10px; cursor:pointer; font-weight:700;}
     .btn:hover{background:var(--btn2);}
     .btnLite{background:#fff; border:1px solid var(--line); color:#111827;}
     .btnLite:hover{background:#f3f4f6;}
     .btnDanger{background:#fff; border:1px solid #fca5a5; color:#b91c1c;}
     .btnDanger:hover{background:#fee2e2;}
-    .meterRow{display:flex; gap:12px; flex-wrap:wrap; margin-top:10px; align-items:center;}
+    .btnDisabled{opacity:.45; cursor:not-allowed;}
+
+    .meterRow{display:flex; gap:12px; flex-wrap:wrap; margin-top:10px; align-items:flex-end;}
     .meterRow .col{flex:1 1 220px;}
-    .xBtn{width:44px; height:44px; border-radius:10px; border:1px solid #fca5a5; background:#fff; color:#b91c1c; font-weight:900; cursor:pointer;}
+    .xBtn{
+      width:44px; height:44px; border-radius:10px;
+      border:1px solid #fca5a5; background:#fff; color:#b91c1c;
+      font-weight:900; cursor:pointer;
+    }
     .xBtn:hover{background:#fee2e2;}
+
     .submit{width:100%; padding:14px 16px; border-radius:12px; font-size:16px; margin-top:16px;}
+
     .msg{margin-top:12px; border-radius:10px; padding:10px 12px; font-size:14px;}
     .msg.err{background:var(--dangerBg); color:var(--danger); border:1px solid #fecaca;}
     .msg.ok{background:var(--okBg); color:var(--ok); border:1px solid #a7f3d0;}
+
+    /* dropdown */
     .dropdown{position:relative;}
     .dropList{
       position:absolute; z-index:50; top:100%; left:0; right:0;
@@ -56,7 +79,8 @@
     .dropItem{padding:10px 12px; cursor:pointer; border-bottom:1px solid #f3f4f6;}
     .dropItem:last-child{border-bottom:none;}
     .dropItem:hover{background:#f3f4f6;}
-    .hint{font-size:12px; color:var(--muted); margin-top:6px;}
+
+    /* honeypot */
     .hp{position:absolute; left:-10000px; top:auto; width:1px; height:1px; overflow:hidden;}
   </style>
 </head>
@@ -69,19 +93,10 @@
 
       <div class="sectionTitle">Abonenta informācija</div>
 
-      <label>Abonenta kods</label>
-      <div class="mode">
-        <label><input type="radio" name="codeMode" value="8" checked> Ievadu visus 8 ciparus</label>
-        <label><input type="radio" name="codeMode" value="5"> Ievadu tikai pēdējos 5 ciparus (prefikss 012)</label>
-      </div>
-
-      <div id="code8" class="digits" style="margin-top:10px;"></div>
-      <div id="code5" class="digits" style="margin-top:10px; display:none;"></div>
-
-      <div class="hint">8 ciparu režīmā: raksti visu kodu (piem. 01201201). 5 ciparu režīmā: raksti tikai pēdējos 5 (piem. 1201X).</div>
+      <label>Abonenta kods (8 cipari)</label>
+      <div id="code8" class="digits"></div>
 
       <div class="sectionTitle">Adreses un skaitītāji</div>
-
       <div id="addresses"></div>
 
       <div style="margin-top:12px;">
@@ -92,7 +107,6 @@
 
       <div id="msg" class="msg err" style="display:none"></div>
 
-      <!-- honeypot -->
       <input class="hp" type="text" id="website" name="website" autocomplete="off" tabindex="-1" />
     </div>
   </div>
@@ -102,13 +116,12 @@
   const $ = (id) => document.getElementById(id);
 
   const code8Wrap = $('code8');
-  const code5Wrap = $('code5');
   const msg = $('msg');
   const banner = $('banner');
 
   let windowInfo = null;
 
-  // ---------- CODE INPUTS ----------
+  // ---------- 8 DIGIT INPUTS ----------
   function createDigitInputs(container, count) {
     container.innerHTML = '';
     const inputs = [];
@@ -119,15 +132,18 @@
       inp.maxLength = 1;
       inp.className = 'digit';
       inp.autocomplete = 'off';
+
       inp.addEventListener('input', () => {
         inp.value = (inp.value || '').replace(/\D/g, '').slice(0, 1);
         if (inp.value && i < count - 1) inputs[i + 1].focus();
       });
+
       inp.addEventListener('keydown', (e) => {
         if (e.key === 'Backspace' && !inp.value && i > 0) inputs[i - 1].focus();
         if (e.key === 'ArrowLeft' && i > 0) inputs[i - 1].focus();
         if (e.key === 'ArrowRight' && i < count - 1) inputs[i + 1].focus();
       });
+
       inputs.push(inp);
       container.appendChild(inp);
     }
@@ -135,62 +151,13 @@
   }
 
   const code8Inputs = createDigitInputs(code8Wrap, 8);
+  code8Inputs[0].focus();
 
-  // 5-digit mode: show fixed "012" as text + 5 inputs
-  const prefix0 = document.createElement('div');
-  prefix0.className = 'digit';
-  prefix0.style.background = '#f3f4f6';
-  prefix0.style.color = '#6b7280';
-  prefix0.style.borderStyle = 'dashed';
-  prefix0.textContent = '0';
-  const prefix1 = prefix0.cloneNode(true); prefix1.textContent = '1';
-  const prefix2 = prefix0.cloneNode(true); prefix2.textContent = '2';
-
-  code5Wrap.appendChild(prefix0);
-  code5Wrap.appendChild(prefix1);
-  code5Wrap.appendChild(prefix2);
-
-  const last5Holder = document.createElement('div');
-  last5Holder.style.display = 'flex';
-  last5Holder.style.gap = '6px';
-  code5Wrap.appendChild(last5Holder);
-
-  const code5Inputs = createDigitInputs(last5Holder, 5);
-
-  function getCodeMode() {
-    return document.querySelector('input[name="codeMode"]:checked').value;
-  }
   function getSubscriberCode() {
-    const mode = getCodeMode();
-    if (mode === '8') {
-      const d = code8Inputs.map(i => i.value || '').join('');
-      return d;
-    } else {
-      const d5 = code5Inputs.map(i => i.value || '').join('');
-      return '012' + d5;
-    }
+    return code8Inputs.map(i => i.value || '').join('');
   }
 
-  document.querySelectorAll('input[name="codeMode"]').forEach(r => {
-    r.addEventListener('change', () => {
-      const mode = getCodeMode();
-      if (mode === '8') {
-        code8Wrap.style.display = '';
-        code5Wrap.style.display = 'none';
-        // clear 5-digit inputs
-        code5Inputs.forEach(i => i.value = '');
-        code8Inputs[0].focus();
-      } else {
-        code8Wrap.style.display = 'none';
-        code5Wrap.style.display = '';
-        // clear 8-digit inputs
-        code8Inputs.forEach(i => i.value = '');
-        code5Inputs[0].focus();
-      }
-    });
-  });
-
-  // ---------- ADDRESSES UI ----------
+  // ---------- UI HELPERS ----------
   function showMessage(text, isOk=false) {
     msg.style.display = 'block';
     msg.className = 'msg ' + (isOk ? 'ok' : 'err');
@@ -247,7 +214,7 @@
 
     const doQuery = debounce(async () => {
       const q = input.value.trim();
-      if (q.length < 2) return hide();
+      if (q.length < 1) return hide();
       try {
         const items = await fetchAddresses(q);
         show(items);
@@ -263,7 +230,7 @@
     return { show, hide };
   }
 
-  function newMeterRow(onRemove) {
+  function newMeterRow(onRemove, isFirstRow) {
     const row = document.createElement('div');
     row.className = 'meterRow';
 
@@ -275,26 +242,27 @@
     const l1 = document.createElement('label'); l1.textContent = 'Skaitītāja Nr';
     const meterNo = document.createElement('input');
     meterNo.type = 'text';
-    meterNo.placeholder = 'piem. 12345678';
 
     const l2 = document.createElement('label'); l2.textContent = 'Rādījums';
     const reading = document.createElement('input');
     reading.type = 'text';
-    reading.placeholder = 'piem. 123.45';
 
     col1.appendChild(l1); col1.appendChild(meterNo);
     col2.appendChild(l2); col2.appendChild(reading);
 
-    const x = document.createElement('button');
-    x.type = 'button';
-    x.className = 'xBtn';
-    x.textContent = '×';
-    x.title = 'Dzēst skaitītāju';
-    x.addEventListener('click', () => onRemove(row));
-
     row.appendChild(col1);
     row.appendChild(col2);
-    row.appendChild(x);
+
+    // Remove button ONLY for non-first rows
+    if (!isFirstRow) {
+      const x = document.createElement('button');
+      x.type = 'button';
+      x.className = 'xBtn';
+      x.textContent = '×';
+      x.title = 'Dzēst skaitītāju';
+      x.addEventListener('click', () => onRemove(row));
+      row.appendChild(x);
+    }
 
     row._meterNo = meterNo;
     row._reading = reading;
@@ -302,14 +270,15 @@
     return row;
   }
 
-  function newAddressBlock(index) {
+  function newAddressBlock(index, isFirstAddress) {
     const block = document.createElement('div');
     block.className = 'addrBlock';
 
     const header = document.createElement('div');
     header.className = 'addrHeader';
+
     const title = document.createElement('div');
-    title.style.fontWeight = '700';
+    title.className = 'title';
     title.textContent = 'Adrese ' + (index + 1);
 
     const delBtn = document.createElement('button');
@@ -317,18 +286,25 @@
     delBtn.className = 'btn btnDanger';
     delBtn.textContent = 'Dzēst adresi';
 
+    // First address cannot be deleted
+    if (isFirstAddress) {
+      delBtn.classList.add('btnDisabled');
+      delBtn.disabled = true;
+    }
+
     header.appendChild(title);
     header.appendChild(delBtn);
 
     const addrLabel = document.createElement('label');
     addrLabel.textContent = 'Adrese';
+
     const addrInput = document.createElement('input');
     addrInput.type = 'text';
-    addrInput.placeholder = 'Sāc rakstīt (var ar ciparu, piem. 12), un izvēlies no saraksta';
+    addrInput.placeholder = ''; // no grey hint
 
-    // wrap into dropdown
     const addrWrap = document.createElement('div');
     addrWrap.appendChild(addrInput);
+
     block.appendChild(header);
     block.appendChild(addrLabel);
     block.appendChild(addrWrap);
@@ -341,8 +317,8 @@
       metersHolder.removeChild(row);
     }
 
-    // initial one row
-    metersHolder.appendChild(newMeterRow(removeMeterRow));
+    // First row cannot be deleted (no X)
+    metersHolder.appendChild(newMeterRow(removeMeterRow, true));
 
     const addMeterBtn = document.createElement('button');
     addMeterBtn.type = 'button';
@@ -350,7 +326,7 @@
     addMeterBtn.textContent = '+ Pievienot skaitītāju';
     addMeterBtn.style.marginTop = '10px';
     addMeterBtn.addEventListener('click', () => {
-      metersHolder.appendChild(newMeterRow(removeMeterRow));
+      metersHolder.appendChild(newMeterRow(removeMeterRow, false));
     });
 
     block.appendChild(metersHolder);
@@ -360,6 +336,7 @@
     block._metersHolder = metersHolder;
 
     delBtn.addEventListener('click', () => {
+      if (isFirstAddress) return;
       block.parentNode.removeChild(block);
       renumberAddressBlocks();
     });
@@ -371,7 +348,7 @@
     const container = $('addresses');
     const blocks = Array.from(container.querySelectorAll('.addrBlock'));
     blocks.forEach((b, i) => {
-      const h = b.querySelector('.addrHeader > div');
+      const h = b.querySelector('.addrHeader .title');
       if (h) h.textContent = 'Adrese ' + (i + 1);
     });
   }
@@ -379,7 +356,8 @@
   function addAddress() {
     const container = $('addresses');
     const idx = container.querySelectorAll('.addrBlock').length;
-    container.appendChild(newAddressBlock(idx));
+    const isFirst = idx === 0;
+    container.appendChild(newAddressBlock(idx, isFirst));
   }
 
   $('addAddressBtn').addEventListener('click', () => addAddress());
@@ -398,37 +376,25 @@
         if (d.is_open || d.isOpen) {
           banner.className = 'banner info';
           banner.style.display = 'block';
-          banner.textContent = 'Iesniegšana ir atvērta (pēc datuma ierobežojuma).';
+          banner.textContent = 'Iesniegšana ir atvērta.';
         } else {
           banner.className = 'banner danger';
           banner.style.display = 'block';
-          banner.textContent = 'Iesniegšana šobrīd nav atvērta (atļauta no 25. datuma 00:00 līdz mēneša beigām 23:59).';
+          banner.textContent = 'Iesniegšana šobrīd nav atvērta.';
         }
       } else {
         banner.className = 'banner danger';
         banner.style.display = 'block';
         banner.textContent = 'TESTA vide: iesniegšana nav ierobežota pēc datuma.';
       }
-    } catch (e) {
-      // ignore
-    }
+    } catch (e) { /* ignore */ }
   }
-
   refreshWindow();
 
   // ---------- submit ----------
   function collectPayload() {
-    const mode = getCodeMode();
     const code = getSubscriberCode().replace(/\D/g, '');
-
-    // validate code shape:
-    if (mode === '8') {
-      if (code.length !== 8) return { error: 'Abonenta kodam jābūt 8 cipariem.' };
-    } else {
-      // 5 mode -> 012 + 5 digits => 8
-      const last5 = code.slice(3);
-      if (last5.length !== 5) return { error: 'Ievadi 5 ciparus (pēdējos 5 ciparus).' };
-    }
+    if (code.length !== 8) return { error: 'Abonenta kodam jābūt 8 cipariem.' };
 
     const addrBlocks = Array.from(document.querySelectorAll('.addrBlock'));
     if (!addrBlocks.length) return { error: 'Pievieno vismaz vienu adresi.' };
@@ -442,7 +408,7 @@
       for (const r of rows) {
         const meterNo = (r._meterNo.value || '').trim();
         const reading = (r._reading.value || '').trim();
-        if (!meterNo && !reading) continue; // allow empty row
+        if (!meterNo && !reading) continue; // allow empty extra rows
         if (!meterNo) return { error: 'Skaitītāja Nr nevar būt tukšs.' };
         if (!reading) return { error: 'Rādījums nevar būt tukšs.' };
 
@@ -457,7 +423,7 @@
     if (!lines.length) return { error: 'Ievadi vismaz vienu skaitītāju ar rādījumu.' };
 
     return {
-      abonenta_numurs: code,          // OLD frontend key (server supports it)
+      abonenta_numurs: code,
       client_submission_id: crypto.randomUUID(),
       website: $('website').value || '',
       lines
@@ -467,17 +433,13 @@
   $('submitBtn').addEventListener('click', async () => {
     clearMessage();
 
-    // If window is enforced and closed, stop early (UI)
     if (windowInfo && windowInfo.enforce && !(windowInfo.is_open || windowInfo.isOpen)) {
       showMessage('Iesniegšana šobrīd nav atvērta.', false);
       return;
     }
 
     const payload = collectPayload();
-    if (payload.error) {
-      showMessage('Kļūda: ' + payload.error, false);
-      return;
-    }
+    if (payload.error) return showMessage('Kļūda: ' + payload.error, false);
 
     try {
       const r = await fetch('/api/submit', {
@@ -486,10 +448,7 @@
         body: JSON.stringify(payload),
       });
       const d = await r.json().catch(() => ({}));
-      if (!r.ok || !d.ok) {
-        showMessage('Kļūda: ' + (d.error || 'Neizdevās iesniegt.'), false);
-        return;
-      }
+      if (!r.ok || !d.ok) return showMessage('Kļūda: ' + (d.error || 'Neizdevās iesniegt.'), false);
       showMessage('Iesniegts veiksmīgi! Paldies.', true);
     } catch (e) {
       showMessage('Kļūda: Savienojuma problēma.', false);
