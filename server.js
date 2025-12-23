@@ -144,7 +144,7 @@ function requireAdminBearer(req, res, next) {
   next();
 }
 
-/* Subscriber code: only 8 digits (no auto-prefixing) */
+/* Subscriber code: only 8 digits */
 function pickSubscriberCode(body) {
   const v = body?.subscriber_code ?? body?.abonenta_numurs ?? body?.subscriberCode ?? body?.subscriber;
   const digits = String(v ?? '').trim().replace(/\D+/g, '');
@@ -168,6 +168,11 @@ function parseReading(value) {
   return s;
 }
 
+/* Diacritics helper (Ausekļa -> ausekla) */
+function stripDiacritics(s) {
+  return String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+
 /* ===================== addresses loader ===================== */
 const ADDR_FILE = path.join(__dirname, 'data', 'adreses.csv');
 
@@ -175,16 +180,6 @@ let addrCache = { loadedAt: 0, rows: [] };
 
 function normalizeForSearch(s) {
   return String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
-}
-
-function tokenizeQuery(q) {
-  const s = normalizeForSearch(q)
-    .replace(/[^\p{L}\p{N}\s]+/gu, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  if (!s) return [];
-  const parts = s.split(' ').filter(Boolean);
-  return parts.filter(t => t.length >= 2 || /^\d+$/.test(t));
 }
 
 function loadAddressesIfNeeded() {
@@ -204,13 +199,36 @@ function loadAddressesIfNeeded() {
 
   const rows = [];
   for (const line of lines) {
+    // one line = one address (already cleaned: no city/postcode)
     const addr = line.includes(';') ? line.split(';')[0].trim() : line.trim();
     if (!addr) continue;
-    rows.push({ norm: normalizeForSearch(addr), original: addr });
+
+    const norm = normalizeForSearch(addr);
+    const key = stripDiacritics(norm); // for search comparisons
+    rows.push({ norm, key, original: addr });
   }
 
   addrCache = { loadedAt: Date.now(), rows };
   console.log(`ADDR_FILE loaded: ${rows.length} addresses`);
+}
+
+/* Helpers for the new "12 au" behavior */
+function parseQuery(qRaw) {
+  const q = stripDiacritics(normalizeForSearch(qRaw))
+    .replace(/[^\p{L}\p{N}\s]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  const parts = q ? q.split(' ').filter(Boolean) : [];
+  const nums = parts.filter(t => /^\d+$/.test(t));
+  const words = parts.filter(t => /[a-z]/i.test(t));
+  return { q, parts, nums, words };
+}
+
+// house number match: num not adjacent to other digits, optional one letter suffix (12a)
+function hasHouseNumber(key, num) {
+  const re = new RegExp(`(^|[^0-9])${num}[a-z]?([^0-9]|$)`, 'i');
+  return re.test(key);
 }
 
 /* ===================== DB: months list ===================== */
@@ -255,26 +273,48 @@ app.get('/api/window', (req, res) => {
   });
 });
 
+/* ✅ Addresses search:
+   - if query has BOTH number(s) and word(s): street MUST start with words (prefix), and house number must match number(s)
+   - else: token anywhere (but tokens len>=2 or digits) */
 app.get('/api/addresses', addressesLimiter, (req, res) => {
   loadAddressesIfNeeded();
 
-  const q = String(req.query.q || '').trim();
-  if (!q) return res.json({ ok: true, items: [], results: [] });
+  const qRaw = String(req.query.q || '').trim();
+  if (!qRaw) return res.json({ ok: true, items: [], results: [] });
 
-  const tokens = tokenizeQuery(q);
+  const { parts, nums, words } = parseQuery(qRaw);
+  const out = [];
+
+  // Special mode: "12 au" => street prefix "au" + house number 12
+  if (nums.length && words.length) {
+    const prefix = words.join(' '); // "au" or "abavas"
+
+    for (const r of addrCache.rows) {
+      if (!r.key.startsWith(prefix)) continue;
+      if (!nums.every(n => hasHouseNumber(r.key, n))) continue;
+
+      out.push(r.original);
+      if (out.length >= 20) break;
+    }
+
+    return res.json({ ok: true, items: out, results: out });
+  }
+
+  // Fallback: token-anywhere search
+  const tokens = parts.filter(t => t.length >= 2 || /^\d+$/.test(t));
   if (!tokens.length) return res.json({ ok: true, items: [], results: [] });
 
-  const out = [];
   for (const r of addrCache.rows) {
-    if (tokens.every(t => r.norm.includes(t))) {
+    if (tokens.every(t => r.key.includes(t))) {
       out.push(r.original);
       if (out.length >= 20) break;
     }
   }
 
-  res.json({ ok: true, items: out, results: out });
+  return res.json({ ok: true, items: out, results: out });
 });
 
+/* Submit */
 app.post('/api/submit', submitLimiter, async (req, res) => {
   const originError = enforceSameOrigin(req, res);
   if (originError) return;
@@ -446,7 +486,6 @@ app.get('/admin', requireBasicAuth, async (req, res) => {
   }
 });
 
-/* ✅ Clear all submissions (Basic Auth + confirm) */
 app.post('/admin/clear', requireBasicAuth, async (req, res) => {
   const confirm = String(req.body.confirm || '').trim();
   if (confirm !== 'DELETE') {
@@ -556,12 +595,10 @@ async function exportCsv(res, req) {
   }
 }
 
-/* Browser export with Basic Auth */
 app.get('/admin/export.csv', requireBasicAuth, async (req, res) => {
   await exportCsv(res, req);
 });
 
-/* API export with Bearer token */
 app.get('/api/export.csv', requireAdminBearer, async (req, res) => {
   await exportCsv(res, req);
 });
