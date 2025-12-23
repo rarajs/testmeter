@@ -169,7 +169,7 @@ function parseReading(value) {
 }
 
 /* ===================== addresses loader ===================== */
-const ADDR_FILE = path.join(__dirname, 'data', 'adreses.csv'); // ✅ lowercase path
+const ADDR_FILE = path.join(__dirname, 'data', 'adreses.csv');
 
 let addrCache = { loadedAt: 0, rows: [] };
 
@@ -204,7 +204,6 @@ function loadAddressesIfNeeded() {
 
   const rows = [];
   for (const line of lines) {
-    // one line = one address (already cleaned: no city/postcode)
     const addr = line.includes(';') ? line.split(';')[0].trim() : line.trim();
     if (!addr) continue;
     rows.push({ norm: normalizeForSearch(addr), original: addr });
@@ -251,12 +250,11 @@ app.get('/api/window', (req, res) => {
     now: info.now,
     start: info.start,
     end: info.end,
-    is_open: info.isOpen, // for your frontend
+    is_open: info.isOpen,
     isOpen: info.isOpen,
   });
 });
 
-/* Addresses search (token search) */
 app.get('/api/addresses', addressesLimiter, (req, res) => {
   loadAddressesIfNeeded();
 
@@ -274,11 +272,9 @@ app.get('/api/addresses', addressesLimiter, (req, res) => {
     }
   }
 
-  // return both keys for compatibility
   res.json({ ok: true, items: out, results: out });
 });
 
-/* Submit */
 app.post('/api/submit', submitLimiter, async (req, res) => {
   const originError = enforceSameOrigin(req, res);
   if (originError) return;
@@ -288,7 +284,6 @@ app.post('/api/submit', submitLimiter, async (req, res) => {
     return res.status(403).json({ ok: false, error: 'Submission window closed', window: info });
   }
 
-  // Honeypot
   const hp = String(req.body.website || req.body.honeypot || '').trim();
   if (hp) return res.status(400).json({ ok: false, error: 'Rejected' });
 
@@ -302,7 +297,6 @@ app.post('/api/submit', submitLimiter, async (req, res) => {
     return res.status(400).json({ ok: false, error: 'Invalid lines' });
   }
 
-  // Address: from body.address or first line adrese
   const bodyAddress = String(req.body.address || '').trim();
   const lineAddress = String(rawLines[0]?.adrese || rawLines[0]?.address || '').trim();
   const address = (bodyAddress || lineAddress || '').trim();
@@ -311,7 +305,6 @@ app.post('/api/submit', submitLimiter, async (req, res) => {
     return res.status(400).json({ ok: false, error: 'Invalid address' });
   }
 
-  // Normalize lines
   const cleanLines = [];
   for (const l of rawLines) {
     const meter_no = normalizeMeterNo(l.meter_no ?? l.skaititaja_numurs ?? l.skaititajaNr);
@@ -320,10 +313,9 @@ app.post('/api/submit', submitLimiter, async (req, res) => {
     const readingStr = parseReading(l.reading ?? l.radijums);
     if (readingStr == null) return res.status(400).json({ ok: false, error: 'Invalid reading (max 2 decimals, >=0)' });
 
-    cleanLines.push({ meter_no, reading: readingStr, previous_reading: null });
+    cleanLines.push({ meter_no, reading: readingStr });
   }
 
-  // Idempotency key
   let client_submission_id = String(req.body.client_submission_id || req.body.clientSubmissionId || '').trim();
   if (client_submission_id) {
     if (!/^[0-9a-fA-F-]{36}$/.test(client_submission_id)) {
@@ -350,10 +342,7 @@ app.post('/api/submit', submitLimiter, async (req, res) => {
       RETURNING id
     `;
 
-    const clientMeta = {
-      referer: referer || null,
-      origin: origin || null,
-    };
+    const clientMeta = { referer: referer || null, origin: origin || null };
 
     const subRes = await client.query(insertSubmissionSql, [
       client_submission_id,
@@ -367,7 +356,6 @@ app.post('/api/submit', submitLimiter, async (req, res) => {
 
     const submissionId = subRes.rows[0].id;
 
-    // Replace lines for idempotency
     await client.query('DELETE FROM submission_lines WHERE submission_id = $1', [submissionId]);
 
     const insertLineSql = `
@@ -390,7 +378,7 @@ app.post('/api/submit', submitLimiter, async (req, res) => {
   }
 });
 
-/* ===================== Admin month UI ===================== */
+/* ===================== Admin UI ===================== */
 
 app.get('/admin', requireBasicAuth, async (req, res) => {
   try {
@@ -410,11 +398,16 @@ app.get('/admin', requireBasicAuth, async (req, res) => {
   <title>Eksports</title>
   <style>
     body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; margin: 24px; }
-    .card { max-width: 520px; border: 1px solid #ddd; border-radius: 12px; padding: 16px; }
+    .card { max-width: 560px; border: 1px solid #ddd; border-radius: 12px; padding: 16px; }
     label { display:block; margin: 10px 0 6px; font-weight: 800; }
-    select, button { width: 100%; padding: 10px; font-size: 16px; }
+    select, input, button { width: 100%; padding: 10px; font-size: 16px; }
     button { margin-top: 12px; font-weight: 900; cursor: pointer; }
     .muted { color:#666; font-size: 13px; margin-top: 10px; }
+    .danger { margin-top: 18px; border-top: 1px solid #eee; padding-top: 14px; }
+    .danger h3 { margin: 0 0 8px; color: #b00020; }
+    .danger small { color:#666; display:block; margin-top: 6px; }
+    .danger button { background:#b00020; color:#fff; border:none; border-radius:10px; }
+    .danger button:hover { opacity:.92; }
   </style>
 </head>
 <body>
@@ -432,6 +425,17 @@ app.get('/admin', requireBasicAuth, async (req, res) => {
     <div class="muted">
       Sarakstā ir tikai mēneši, par kuriem DB ir iesniegumi (pēc ${TZ} laika).
     </div>
+
+    <div class="danger">
+      <h3>Dzēst visus iesniegumus</h3>
+      <div class="muted">Šī darbība neatgriezeniski izdzēsīs visus iesniegumus no DB.</div>
+      <form method="POST" action="/admin/clear">
+        <label for="confirm">Ieraksti <b>DELETE</b>, lai apstiprinātu</label>
+        <input id="confirm" name="confirm" autocomplete="off" />
+        <button type="submit">Dzēst visu</button>
+        <small>Drošībai: bez “DELETE” ievades dzēšana nenotiks.</small>
+      </form>
+    </div>
   </div>
 </body>
 </html>
@@ -442,13 +446,41 @@ app.get('/admin', requireBasicAuth, async (req, res) => {
   }
 });
 
-/* Optional: months JSON (Basic Auth) */
-app.get('/api/months', requireBasicAuth, async (req, res) => {
+/* ✅ Clear all submissions (Basic Auth + confirm) */
+app.post('/admin/clear', requireBasicAuth, async (req, res) => {
+  const confirm = String(req.body.confirm || '').trim();
+  if (confirm !== 'DELETE') {
+    res.status(400);
+    return res.send('Nepareizs apstiprinājums. Ieraksti DELETE.');
+  }
+
+  const client = await pool.connect();
   try {
-    const months = await listAvailableMonths();
-    res.json({ ok: true, months });
+    await client.query('BEGIN');
+    await client.query('TRUNCATE TABLE submission_lines, submissions RESTART IDENTITY CASCADE;');
+    await client.query('COMMIT');
+
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    return res.end(`
+<!doctype html>
+<html lang="lv">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>OK</title>
+<style>body{font-family:system-ui;margin:24px}a{display:inline-block;margin-top:12px}</style>
+</head>
+<body>
+  <h2>OK — visi iesniegumi dzēsti</h2>
+  <div>DB tabulas ir iztīrītas (submissions + submission_lines).</div>
+  <a href="/admin">Atpakaļ uz admin</a>
+</body>
+</html>
+    `);
   } catch (e) {
-    res.status(500).json({ ok: false, error: 'months failed' });
+    try { await client.query('ROLLBACK'); } catch (_) {}
+    console.error('admin clear error', e);
+    return res.status(500).send('Dzēšana neizdevās.');
+  } finally {
+    client.release();
   }
 });
 
