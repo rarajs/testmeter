@@ -263,7 +263,7 @@
 <body>
 <div class="wrap">
   <div class="card">
-    <h1>Ūdens skaitītāju rādijumu iesniegšana</h1>
+    <h1>Ūdens skaitītāju rādījumu iesniegšana</h1>
 
     <div id="windowNotice" class="noticeBox"></div>
 
@@ -325,7 +325,7 @@
       const w = await res.json();
 
       if (!w.is_open && w.enforce) {
-        box.innerHTML = "<b>Rādījumus var iesniegt tikai no katra mēneša 25. datuma 00:00 līdz mēneša pēdējam datumam 23:59.</b>";
+        box.innerHTML = "<b>Rādījumu iesniegšana 25.datuma mēneša beigām.</b>";
         box.classList.add("show");
       } else if (!w.enforce) {
         box.innerHTML = "<b>TESTA vide:</b> iesniegšana nav ierobežota pēc datuma.";
