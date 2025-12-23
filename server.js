@@ -49,6 +49,10 @@ app.use(helmet({
 app.use(express.json({ limit: '128kb' }));
 app.use(express.urlencoded({ extended: false, limit: '128kb' }));
 
+// Block direct access to addresses CSV (security)
+app.get('/adreses.csv', (req, res) => {
+  res.status(404).end();
+});
 // ===== static frontend (IMPORTANT: your repo uses "Public" folder on Linux) =====
 app.use(express.static(path.join(__dirname, 'Public'), {
   etag: true,
@@ -210,7 +214,7 @@ function toCSVRow(fields) {
 
 // ===== addresses file loader (cached) =====
 // IMPORTANT: your "adreses.csv" is actually one address per line (with commas inside address).
-const ADDR_FILE = path.join(__dirname, 'Public', 'adreses.csv');
+const ADDR_FILE = path.join(__dirname, 'public', 'adreses.csv');
 
 let addrCache = {
   loadedAt: 0,
