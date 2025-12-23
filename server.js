@@ -55,11 +55,13 @@ app.use(express.json({ limit: '128kb' })); // protect from huge payloads
 app.use(express.urlencoded({ extended: false, limit: '128kb' }));
 
 // Static frontend
-app.use(express.static(path.join(__dirname, 'public'), {
+app.use(express.static(path.join(__dirname, 'Public'), {
   etag: true,
   maxAge: '1h'
 }));
-
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'Public', 'index.html'));
+});
 // ===== rate limiters =====
 const submitLimiter = rateLimit({
   windowMs: 10 * 60 * 1000,
