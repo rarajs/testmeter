@@ -28,7 +28,7 @@ const ADMIN_USER = process.env.ADMIN_USER || '';
 const ADMIN_PASS = process.env.ADMIN_PASS || '';
 
 const RATE_LIMIT_SUBMIT_PER_10MIN = parseInt(process.env.RATE_LIMIT_SUBMIT_PER_10MIN || '20', 10);
-const RATE_LIMIT_ADDR_PER_MIN = parseInt(process.env.RATE_LIMIT_ADDR_PER_MIN || '120', 10); // slightly higher for UX
+const RATE_LIMIT_ADDR_PER_MIN = parseInt(process.env.RATE_LIMIT_ADDR_PER_MIN || '120', 10);
 
 if (!DATABASE_URL) {
   console.error('FATAL: DATABASE_URL is missing');
@@ -40,17 +40,14 @@ const pool = new Pool({ connectionString: DATABASE_URL });
 
 // ===================== middleware =====================
 app.set('trust proxy', 1);
-
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(express.json({ limit: '256kb' }));
 app.use(express.urlencoded({ extended: false, limit: '256kb' }));
 
 // ===================== block direct CSV access =====================
-// If file is ever in static folder, block it anyway.
 app.get('/adreses.csv', (req, res) => res.status(404).end());
 
 // ===================== static frontend =====================
-// Your repo has "public" (lowercase)
 app.use(express.static(path.join(__dirname, 'public'), { etag: true, maxAge: '1h' }));
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
@@ -74,7 +71,6 @@ function getSubmissionWindow(now = DateTime.now().setZone(TZ)) {
   const start = now.startOf('month').plus({ days: 24 }).startOf('day'); // 25th 00:00
   const end = now.endOf('month'); // last day 23:59:59.999
   const isOpen = now >= start && now <= end;
-
   return { timezone: TZ, now: now.toISO(), start: start.toISO(), end: end.toISO(), isOpen };
 }
 
@@ -127,20 +123,31 @@ function toCSVRow(fields) {
   return fields.map(v => csvEscape(csvSanitize(v))).join(',') + '\n';
 }
 
-// Subscriber code – COMPAT layer
+// Subscriber code – COMPAT + robust.
 // Accepts:
 // - new: subscriber_code
 // - old: abonenta_numurs
 // - also: subscriberCode
 // Returns 8-digit string with leading zeros preserved.
+// NOTE: does NOT "invent" digits; only normalizes.
 function pickSubscriberCode(body) {
-  const v = body?.subscriber_code ?? body?.abonenta_numurs ?? body?.subscriberCode ?? body?.subscriber;
-  const digits = String(v ?? '').trim().replace(/\D+/g, '');
+  let v = body?.subscriber_code ?? body?.abonenta_numurs ?? body?.subscriberCode ?? body?.subscriber;
+
+  if (Array.isArray(v)) v = v.join('');
+  if (v && typeof v === 'object' && Array.isArray(v.digits)) v = v.digits.join('');
+
+  let digits = String(v ?? '').trim().replace(/\D+/g, '');
+
+  // If frontend accidentally duplicated prefix (012012xxxxx), collapse to one prefix.
+  if (digits.length === 11 && digits.startsWith('012012')) {
+    const fixed = '012' + digits.slice(6); // keep one 012 + last 5
+    if (/^\d{8}$/.test(fixed)) return fixed;
+  }
 
   if (/^\d{8}$/.test(digits)) return digits;
   if (/^\d{5}$/.test(digits)) return '012' + digits;
 
-  // if numeric input lost leading zeros -> restore to 8
+  // leading zeros lost (numeric input) -> restore to 8
   if (/^\d{6,7}$/.test(digits)) return digits.padStart(8, '0');
 
   return null;
@@ -152,7 +159,7 @@ function parseReading(value) {
   if (!/^\d+(\.\d{1,2})?$/.test(s)) return null;
   const num = Number(s);
   if (!Number.isFinite(num) || num < 0) return null;
-  return s; // keep as string, DB numeric will handle scale
+  return s;
 }
 
 function normalizeMeterNo(v) {
@@ -181,13 +188,27 @@ function requireBasicAuth(req, res, next) {
 }
 
 // ===================== addresses loader =====================
-// IMPORTANT: your repo contains Data/adreses.csv (uppercase D)
-const ADDR_FILE = path.join(__dirname, 'Data', 'adreses.csv');
+// IMPORTANT: repo contains Data/adreses.csv (uppercase D)
+const ADDR_FILE = path.join(__dirname, 'data', 'adreses.csv');
 
 let addrCache = { loadedAt: 0, rows: [] };
 
 function normalizeForSearch(s) {
   return String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function tokenizeQuery(q) {
+  // normalize and split into tokens, keep digits and letters; allow "12 aba" etc.
+  const s = normalizeForSearch(q)
+    .replace(/[^\p{L}\p{N}\s]+/gu, ' ') // keep letters/numbers/spaces (unicode)
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!s) return [];
+  const parts = s.split(' ').filter(Boolean);
+
+  // keep tokens length>=2 OR pure digits
+  return parts.filter(t => t.length >= 2 || /^\d+$/.test(t));
 }
 
 function loadAddressesIfNeeded() {
@@ -200,7 +221,6 @@ function loadAddressesIfNeeded() {
   const stat = fs.statSync(ADDR_FILE);
   const mtime = stat.mtimeMs;
 
-  // If already loaded and file not changed, keep cache
   if (addrCache.loadedAt && addrCache.loadedAt >= mtime && addrCache.rows.length) return;
 
   const content = fs.readFileSync(ADDR_FILE, 'utf8').replace(/^\uFEFF/, '');
@@ -208,7 +228,7 @@ function loadAddressesIfNeeded() {
 
   const rows = [];
   for (const line of lines) {
-    // Your file is "one line = one address" (commas inside). Keep full line.
+    // one line = one address, keep full line (commas inside)
     const addr = line.includes(';') ? line.split(';')[0].trim() : line.trim();
     if (!addr) continue;
     rows.push({ norm: normalizeForSearch(addr), original: addr });
@@ -239,23 +259,25 @@ app.get('/api/window', (req, res) => {
     now: info.now,
     start: info.start,
     end: info.end,
-    isOpen: info.isOpen,      // new
-    is_open: info.isOpen,     // old frontend compat
+    isOpen: info.isOpen,
+    is_open: info.isOpen,
   });
 });
 
-// addresses – return BOTH formats (items + results)
+// addresses – token search + return BOTH formats (items + results)
 app.get('/api/addresses', addressesLimiter, (req, res) => {
   loadAddressesIfNeeded();
 
   const q = String(req.query.q || '').trim();
   if (!q) return res.json({ ok: true, results: [], items: [] });
 
-  const nq = normalizeForSearch(q);
+  const tokens = tokenizeQuery(q);
+  if (!tokens.length) return res.json({ ok: true, results: [], items: [] });
 
   const results = [];
   for (const r of addrCache.rows) {
-    if (r.norm.includes(nq)) {
+    // every token must exist somewhere in address
+    if (tokens.every(t => r.norm.includes(t))) {
       results.push(r.original);
       if (results.length >= 20) break;
     }
@@ -276,11 +298,10 @@ app.post('/api/submit', submitLimiter, async (req, res) => {
     return res.status(403).json({ ok: false, error: 'Submission window closed', window: info });
   }
 
-  // Honeypot (old/new: allow both)
+  // Honeypot (old/new)
   const hp = String(req.body.website || req.body.honeypot || '').trim();
   if (hp) return res.status(400).json({ ok: false, error: 'Rejected' });
 
-  // Subscriber code (old: abonenta_numurs, new: subscriber_code)
   const subscriber_code = pickSubscriberCode(req.body);
   if (!subscriber_code) {
     console.warn('Invalid subscriber_code. Keys:', Object.keys(req.body || {}));
@@ -288,17 +309,14 @@ app.post('/api/submit', submitLimiter, async (req, res) => {
     return res.status(400).json({ ok: false, error: 'Invalid subscriber_code (must be 8 digits)' });
   }
 
-  // Lines:
-  // new expects: address + lines [{meter_no, reading, previous_reading?}]
-  // old sends:  lines [{adrese, skaititaja_numurs, radijums}]
   const rawLines = Array.isArray(req.body.lines) ? req.body.lines : [];
-  if (!rawLines.length || rawLines.length > 50) {
+  if (!rawLines.length || rawLines.length > 200) {
     return res.status(400).json({ ok: false, error: 'Invalid lines' });
   }
 
   // Address:
   // new: req.body.address
-  // old: per-line adrese. We will store submission address = first line's adrese.
+  // old: per-line adrese. store submission address = first line's adrese.
   const bodyAddress = String(req.body.address || '').trim();
   const lineAddress = String(rawLines[0]?.adrese || rawLines[0]?.address || '').trim();
   const address = (bodyAddress || lineAddress || '').trim();
@@ -307,7 +325,7 @@ app.post('/api/submit', submitLimiter, async (req, res) => {
     return res.status(400).json({ ok: false, error: 'Invalid address' });
   }
 
-  // Normalize lines
+  // Normalize lines to DB fields
   const cleanLines = [];
   for (const l of rawLines) {
     const meter_no = normalizeMeterNo(l.meter_no ?? l.skaititaja_numurs ?? l.skaititajaNr);
@@ -466,8 +484,5 @@ async function exportCsv(res) {
 
 // ===================== start =====================
 app.listen(PORT, () => {
-  if (!PUBLIC_ORIGIN) {
-    console.warn('WARN: PUBLIC_ORIGIN is not set (Origin/Referer checks will be strict-failing submit).');
-  }
   console.log(`testmeter listening on :${PORT} (enforceWindow=${ENFORCE_WINDOW}, tz=${TZ})`);
 });

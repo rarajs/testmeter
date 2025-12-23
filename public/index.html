@@ -1,0 +1,502 @@
+<!doctype html>
+<html lang="lv">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Rādījumu iesniegšana</title>
+  <style>
+    :root{
+      --bg:#f6f7fb; --card:#fff; --text:#111827; --muted:#6b7280;
+      --line:#e5e7eb; --btn:#0f5b7a; --btn2:#0b4a64;
+      --danger:#b91c1c; --dangerBg:#fee2e2; --ok:#065f46; --okBg:#d1fae5;
+    }
+    body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial; background:var(--bg); color:var(--text);}
+    .wrap{max-width:900px;margin:24px auto;padding:0 12px;}
+    .card{background:var(--card); border:1px solid var(--line); border-radius:14px; padding:18px 18px 22px;}
+    h1{margin:0 0 12px; font-size:22px;}
+    .banner{border-radius:10px; padding:10px 12px; margin:10px 0 16px; font-size:14px;}
+    .banner.danger{background:#fff1f2; border:1px solid #fecdd3; color:#9f1239;}
+    .banner.info{background:#eef2ff; border:1px solid #c7d2fe; color:#3730a3;}
+    .row{display:flex; gap:12px; flex-wrap:wrap;}
+    .col{flex:1 1 320px;}
+    label{display:block; font-size:13px; color:var(--muted); margin:10px 0 6px;}
+    input[type="text"], input[type="number"]{
+      width:100%; box-sizing:border-box; border:1px solid var(--line);
+      border-radius:10px; padding:12px 12px; font-size:16px; outline:none;
+    }
+    input:focus{border-color:#93c5fd; box-shadow:0 0 0 3px rgba(147,197,253,.35);}
+    .digits{display:flex; gap:6px; align-items:center;}
+    .digit{width:44px; text-align:center; font-size:18px; padding:12px 0; border:1px solid var(--line); border-radius:10px;}
+    .mode{display:flex; gap:14px; align-items:center; margin-top:6px; color:var(--muted); font-size:13px;}
+    .mode input{transform:scale(1.1);}
+    .sectionTitle{margin:18px 0 8px; font-weight:700; font-size:14px;}
+    .addrBlock{border:1px solid var(--line); border-radius:12px; padding:12px; margin-top:10px;}
+    .addrHeader{display:flex; justify-content:space-between; align-items:center; gap:10px;}
+    .btn{background:var(--btn); color:#fff; border:none; padding:10px 12px; border-radius:10px; cursor:pointer; font-weight:700;}
+    .btn:hover{background:var(--btn2);}
+    .btnLite{background:#fff; border:1px solid var(--line); color:#111827;}
+    .btnLite:hover{background:#f3f4f6;}
+    .btnDanger{background:#fff; border:1px solid #fca5a5; color:#b91c1c;}
+    .btnDanger:hover{background:#fee2e2;}
+    .meterRow{display:flex; gap:12px; flex-wrap:wrap; margin-top:10px; align-items:center;}
+    .meterRow .col{flex:1 1 220px;}
+    .xBtn{width:44px; height:44px; border-radius:10px; border:1px solid #fca5a5; background:#fff; color:#b91c1c; font-weight:900; cursor:pointer;}
+    .xBtn:hover{background:#fee2e2;}
+    .submit{width:100%; padding:14px 16px; border-radius:12px; font-size:16px; margin-top:16px;}
+    .msg{margin-top:12px; border-radius:10px; padding:10px 12px; font-size:14px;}
+    .msg.err{background:var(--dangerBg); color:var(--danger); border:1px solid #fecaca;}
+    .msg.ok{background:var(--okBg); color:var(--ok); border:1px solid #a7f3d0;}
+    .dropdown{position:relative;}
+    .dropList{
+      position:absolute; z-index:50; top:100%; left:0; right:0;
+      background:#fff; border:1px solid var(--line); border-radius:12px;
+      max-height:260px; overflow:auto; margin-top:6px; box-shadow:0 10px 30px rgba(0,0,0,.08);
+      display:none;
+    }
+    .dropItem{padding:10px 12px; cursor:pointer; border-bottom:1px solid #f3f4f6;}
+    .dropItem:last-child{border-bottom:none;}
+    .dropItem:hover{background:#f3f4f6;}
+    .hint{font-size:12px; color:var(--muted); margin-top:6px;}
+    .hp{position:absolute; left:-10000px; top:auto; width:1px; height:1px; overflow:hidden;}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>Rādījumu iesniegšana</h1>
+
+      <div id="banner" class="banner info" style="display:none"></div>
+
+      <div class="sectionTitle">Abonenta informācija</div>
+
+      <label>Abonenta kods</label>
+      <div class="mode">
+        <label><input type="radio" name="codeMode" value="8" checked> Ievadu visus 8 ciparus</label>
+        <label><input type="radio" name="codeMode" value="5"> Ievadu tikai pēdējos 5 ciparus (prefikss 012)</label>
+      </div>
+
+      <div id="code8" class="digits" style="margin-top:10px;"></div>
+      <div id="code5" class="digits" style="margin-top:10px; display:none;"></div>
+
+      <div class="hint">8 ciparu režīmā: raksti visu kodu (piem. 01201201). 5 ciparu režīmā: raksti tikai pēdējos 5 (piem. 1201X).</div>
+
+      <div class="sectionTitle">Adreses un skaitītāji</div>
+
+      <div id="addresses"></div>
+
+      <div style="margin-top:12px;">
+        <button class="btn btnLite" type="button" id="addAddressBtn">+ Pievienot adresi</button>
+      </div>
+
+      <button class="btn submit" type="button" id="submitBtn">IESNIEGT</button>
+
+      <div id="msg" class="msg err" style="display:none"></div>
+
+      <!-- honeypot -->
+      <input class="hp" type="text" id="website" name="website" autocomplete="off" tabindex="-1" />
+    </div>
+  </div>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+
+  const code8Wrap = $('code8');
+  const code5Wrap = $('code5');
+  const msg = $('msg');
+  const banner = $('banner');
+
+  let windowInfo = null;
+
+  // ---------- CODE INPUTS ----------
+  function createDigitInputs(container, count) {
+    container.innerHTML = '';
+    const inputs = [];
+    for (let i = 0; i < count; i++) {
+      const inp = document.createElement('input');
+      inp.type = 'text';
+      inp.inputMode = 'numeric';
+      inp.maxLength = 1;
+      inp.className = 'digit';
+      inp.autocomplete = 'off';
+      inp.addEventListener('input', () => {
+        inp.value = (inp.value || '').replace(/\D/g, '').slice(0, 1);
+        if (inp.value && i < count - 1) inputs[i + 1].focus();
+      });
+      inp.addEventListener('keydown', (e) => {
+        if (e.key === 'Backspace' && !inp.value && i > 0) inputs[i - 1].focus();
+        if (e.key === 'ArrowLeft' && i > 0) inputs[i - 1].focus();
+        if (e.key === 'ArrowRight' && i < count - 1) inputs[i + 1].focus();
+      });
+      inputs.push(inp);
+      container.appendChild(inp);
+    }
+    return inputs;
+  }
+
+  const code8Inputs = createDigitInputs(code8Wrap, 8);
+
+  // 5-digit mode: show fixed "012" as text + 5 inputs
+  const prefix0 = document.createElement('div');
+  prefix0.className = 'digit';
+  prefix0.style.background = '#f3f4f6';
+  prefix0.style.color = '#6b7280';
+  prefix0.style.borderStyle = 'dashed';
+  prefix0.textContent = '0';
+  const prefix1 = prefix0.cloneNode(true); prefix1.textContent = '1';
+  const prefix2 = prefix0.cloneNode(true); prefix2.textContent = '2';
+
+  code5Wrap.appendChild(prefix0);
+  code5Wrap.appendChild(prefix1);
+  code5Wrap.appendChild(prefix2);
+
+  const last5Holder = document.createElement('div');
+  last5Holder.style.display = 'flex';
+  last5Holder.style.gap = '6px';
+  code5Wrap.appendChild(last5Holder);
+
+  const code5Inputs = createDigitInputs(last5Holder, 5);
+
+  function getCodeMode() {
+    return document.querySelector('input[name="codeMode"]:checked').value;
+  }
+  function getSubscriberCode() {
+    const mode = getCodeMode();
+    if (mode === '8') {
+      const d = code8Inputs.map(i => i.value || '').join('');
+      return d;
+    } else {
+      const d5 = code5Inputs.map(i => i.value || '').join('');
+      return '012' + d5;
+    }
+  }
+
+  document.querySelectorAll('input[name="codeMode"]').forEach(r => {
+    r.addEventListener('change', () => {
+      const mode = getCodeMode();
+      if (mode === '8') {
+        code8Wrap.style.display = '';
+        code5Wrap.style.display = 'none';
+        // clear 5-digit inputs
+        code5Inputs.forEach(i => i.value = '');
+        code8Inputs[0].focus();
+      } else {
+        code8Wrap.style.display = 'none';
+        code5Wrap.style.display = '';
+        // clear 8-digit inputs
+        code8Inputs.forEach(i => i.value = '');
+        code5Inputs[0].focus();
+      }
+    });
+  });
+
+  // ---------- ADDRESSES UI ----------
+  function showMessage(text, isOk=false) {
+    msg.style.display = 'block';
+    msg.className = 'msg ' + (isOk ? 'ok' : 'err');
+    msg.textContent = text;
+  }
+  function clearMessage() {
+    msg.style.display = 'none';
+    msg.textContent = '';
+  }
+
+  function debounce(fn, ms) {
+    let t = null;
+    return (...args) => {
+      clearTimeout(t);
+      t = setTimeout(() => fn(...args), ms);
+    };
+  }
+
+  async function fetchAddresses(q) {
+    const url = '/api/addresses?q=' + encodeURIComponent(q);
+    const r = await fetch(url, { headers: { 'Accept': 'application/json' } });
+    const data = await r.json();
+    const arr = data.items || data.results || [];
+    return Array.isArray(arr) ? arr : [];
+  }
+
+  function createDropdown(input) {
+    const wrap = document.createElement('div');
+    wrap.className = 'dropdown';
+    input.parentNode.insertBefore(wrap, input);
+    wrap.appendChild(input);
+
+    const list = document.createElement('div');
+    list.className = 'dropList';
+    wrap.appendChild(list);
+
+    function hide() { list.style.display = 'none'; list.innerHTML = ''; }
+    function show(items) {
+      list.innerHTML = '';
+      if (!items.length) return hide();
+      for (const it of items) {
+        const div = document.createElement('div');
+        div.className = 'dropItem';
+        div.textContent = it;
+        div.addEventListener('mousedown', (e) => {
+          e.preventDefault();
+          input.value = it;
+          hide();
+        });
+        list.appendChild(div);
+      }
+      list.style.display = 'block';
+    }
+
+    const doQuery = debounce(async () => {
+      const q = input.value.trim();
+      if (q.length < 2) return hide();
+      try {
+        const items = await fetchAddresses(q);
+        show(items);
+      } catch (e) {
+        hide();
+      }
+    }, 200);
+
+    input.addEventListener('input', () => doQuery());
+    input.addEventListener('focus', () => doQuery());
+    input.addEventListener('blur', () => setTimeout(hide, 120));
+
+    return { show, hide };
+  }
+
+  function newMeterRow(onRemove) {
+    const row = document.createElement('div');
+    row.className = 'meterRow';
+
+    const col1 = document.createElement('div');
+    col1.className = 'col';
+    const col2 = document.createElement('div');
+    col2.className = 'col';
+
+    const l1 = document.createElement('label'); l1.textContent = 'Skaitītāja Nr';
+    const meterNo = document.createElement('input');
+    meterNo.type = 'text';
+    meterNo.placeholder = 'piem. 12345678';
+
+    const l2 = document.createElement('label'); l2.textContent = 'Rādījums';
+    const reading = document.createElement('input');
+    reading.type = 'text';
+    reading.placeholder = 'piem. 123.45';
+
+    col1.appendChild(l1); col1.appendChild(meterNo);
+    col2.appendChild(l2); col2.appendChild(reading);
+
+    const x = document.createElement('button');
+    x.type = 'button';
+    x.className = 'xBtn';
+    x.textContent = '×';
+    x.title = 'Dzēst skaitītāju';
+    x.addEventListener('click', () => onRemove(row));
+
+    row.appendChild(col1);
+    row.appendChild(col2);
+    row.appendChild(x);
+
+    row._meterNo = meterNo;
+    row._reading = reading;
+
+    return row;
+  }
+
+  function newAddressBlock(index) {
+    const block = document.createElement('div');
+    block.className = 'addrBlock';
+
+    const header = document.createElement('div');
+    header.className = 'addrHeader';
+    const title = document.createElement('div');
+    title.style.fontWeight = '700';
+    title.textContent = 'Adrese ' + (index + 1);
+
+    const delBtn = document.createElement('button');
+    delBtn.type = 'button';
+    delBtn.className = 'btn btnDanger';
+    delBtn.textContent = 'Dzēst adresi';
+
+    header.appendChild(title);
+    header.appendChild(delBtn);
+
+    const addrLabel = document.createElement('label');
+    addrLabel.textContent = 'Adrese';
+    const addrInput = document.createElement('input');
+    addrInput.type = 'text';
+    addrInput.placeholder = 'Sāc rakstīt (var ar ciparu, piem. 12), un izvēlies no saraksta';
+
+    // wrap into dropdown
+    const addrWrap = document.createElement('div');
+    addrWrap.appendChild(addrInput);
+    block.appendChild(header);
+    block.appendChild(addrLabel);
+    block.appendChild(addrWrap);
+
+    createDropdown(addrInput);
+
+    const metersHolder = document.createElement('div');
+
+    function removeMeterRow(row) {
+      metersHolder.removeChild(row);
+    }
+
+    // initial one row
+    metersHolder.appendChild(newMeterRow(removeMeterRow));
+
+    const addMeterBtn = document.createElement('button');
+    addMeterBtn.type = 'button';
+    addMeterBtn.className = 'btn btnLite';
+    addMeterBtn.textContent = '+ Pievienot skaitītāju';
+    addMeterBtn.style.marginTop = '10px';
+    addMeterBtn.addEventListener('click', () => {
+      metersHolder.appendChild(newMeterRow(removeMeterRow));
+    });
+
+    block.appendChild(metersHolder);
+    block.appendChild(addMeterBtn);
+
+    block._addrInput = addrInput;
+    block._metersHolder = metersHolder;
+
+    delBtn.addEventListener('click', () => {
+      block.parentNode.removeChild(block);
+      renumberAddressBlocks();
+    });
+
+    return block;
+  }
+
+  function renumberAddressBlocks() {
+    const container = $('addresses');
+    const blocks = Array.from(container.querySelectorAll('.addrBlock'));
+    blocks.forEach((b, i) => {
+      const h = b.querySelector('.addrHeader > div');
+      if (h) h.textContent = 'Adrese ' + (i + 1);
+    });
+  }
+
+  function addAddress() {
+    const container = $('addresses');
+    const idx = container.querySelectorAll('.addrBlock').length;
+    container.appendChild(newAddressBlock(idx));
+  }
+
+  $('addAddressBtn').addEventListener('click', () => addAddress());
+
+  // initial one address
+  addAddress();
+
+  // ---------- window banner ----------
+  async function refreshWindow() {
+    try {
+      const r = await fetch('/api/window', { headers: { 'Accept': 'application/json' } });
+      const d = await r.json();
+      windowInfo = d;
+
+      if (d.enforce) {
+        if (d.is_open || d.isOpen) {
+          banner.className = 'banner info';
+          banner.style.display = 'block';
+          banner.textContent = 'Iesniegšana ir atvērta (pēc datuma ierobežojuma).';
+        } else {
+          banner.className = 'banner danger';
+          banner.style.display = 'block';
+          banner.textContent = 'Iesniegšana šobrīd nav atvērta (atļauta no 25. datuma 00:00 līdz mēneša beigām 23:59).';
+        }
+      } else {
+        banner.className = 'banner danger';
+        banner.style.display = 'block';
+        banner.textContent = 'TESTA vide: iesniegšana nav ierobežota pēc datuma.';
+      }
+    } catch (e) {
+      // ignore
+    }
+  }
+
+  refreshWindow();
+
+  // ---------- submit ----------
+  function collectPayload() {
+    const mode = getCodeMode();
+    const code = getSubscriberCode().replace(/\D/g, '');
+
+    // validate code shape:
+    if (mode === '8') {
+      if (code.length !== 8) return { error: 'Abonenta kodam jābūt 8 cipariem.' };
+    } else {
+      // 5 mode -> 012 + 5 digits => 8
+      const last5 = code.slice(3);
+      if (last5.length !== 5) return { error: 'Ievadi 5 ciparus (pēdējos 5 ciparus).' };
+    }
+
+    const addrBlocks = Array.from(document.querySelectorAll('.addrBlock'));
+    if (!addrBlocks.length) return { error: 'Pievieno vismaz vienu adresi.' };
+
+    const lines = [];
+    for (const b of addrBlocks) {
+      const addr = (b._addrInput.value || '').trim();
+      if (!addr) return { error: 'Adrese nevar būt tukša.' };
+
+      const rows = Array.from(b._metersHolder.querySelectorAll('.meterRow'));
+      for (const r of rows) {
+        const meterNo = (r._meterNo.value || '').trim();
+        const reading = (r._reading.value || '').trim();
+        if (!meterNo && !reading) continue; // allow empty row
+        if (!meterNo) return { error: 'Skaitītāja Nr nevar būt tukšs.' };
+        if (!reading) return { error: 'Rādījums nevar būt tukšs.' };
+
+        lines.push({
+          adrese: addr,
+          skaititaja_numurs: meterNo,
+          radijums: reading
+        });
+      }
+    }
+
+    if (!lines.length) return { error: 'Ievadi vismaz vienu skaitītāju ar rādījumu.' };
+
+    return {
+      abonenta_numurs: code,          // OLD frontend key (server supports it)
+      client_submission_id: crypto.randomUUID(),
+      website: $('website').value || '',
+      lines
+    };
+  }
+
+  $('submitBtn').addEventListener('click', async () => {
+    clearMessage();
+
+    // If window is enforced and closed, stop early (UI)
+    if (windowInfo && windowInfo.enforce && !(windowInfo.is_open || windowInfo.isOpen)) {
+      showMessage('Iesniegšana šobrīd nav atvērta.', false);
+      return;
+    }
+
+    const payload = collectPayload();
+    if (payload.error) {
+      showMessage('Kļūda: ' + payload.error, false);
+      return;
+    }
+
+    try {
+      const r = await fetch('/api/submit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !d.ok) {
+        showMessage('Kļūda: ' + (d.error || 'Neizdevās iesniegt.'), false);
+        return;
+      }
+      showMessage('Iesniegts veiksmīgi! Paldies.', true);
+    } catch (e) {
+      showMessage('Kļūda: Savienojuma problēma.', false);
+    }
+  });
+
+})();
+</script>
+</body>
+</html>
