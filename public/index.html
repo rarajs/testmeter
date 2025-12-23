@@ -63,55 +63,46 @@
     .noticeBox.show{ display:block; }
 
     /* ===== Abonenta koda 8 kvadrātiņi ===== */
-    /* Desktop: šauri, kreisajā pusē, neizstiepti */
-    .code-boxes{
-      display:flex;
-      flex-wrap:nowrap;
-      gap:8px;
-      width:fit-content;
-      max-width:100%;
-      overflow:hidden;
-    }
-    .code-boxes input{
-      width:40px;
-      height:46px;
-      text-align:center;
-      font-size:18px;
-      font-weight:900;
-      border-radius:12px;
-      border:2px solid #cfd6de;
-      padding:0;
-      flex:0 0 40px;
-      min-width:0;
-    }
+    /* Desktop: šauri kvadrātiņi kreisajā pusē */
+.code-boxes{
+  display:flex;
+  flex-wrap:nowrap;
+  gap:8px;
+  width:fit-content;   /* neizstiepj pa visu ekrānu */
+  max-width:100%;
+}
+.code-boxes input{
+  width:40px;
+  height:46px;
+  flex:0 0 40px;
+  text-align:center;
+  font-size:18px;
+  font-weight:900;
+  border-radius:12px;
+  border:2px solid #cfd6de;
+  padding:0;
+  min-width:0;
+}
 
-    /* Mobile: elastīgi, lai visas 8 vienmēr ietilpst */
-    @media (max-width:420px){
-      body{ padding:12px; }
-      .card{ padding:14px; }
-
-      .code-boxes{
-        width:100%;
-        gap:5px;
-      }
-      .code-boxes input{
-        width:auto;
-        flex:1 1 0;
-        flex-basis:0;
-        min-width:0;
-        height:44px;
-        font-size:16px;
-        border-radius:11px;
-      }
-    }
-    @media (max-width:360px){
-      .code-boxes{ gap:4px; }
-      .code-boxes input{
-        height:42px;
-        font-size:15px;
-        border-radius:10px;
-      }
-    }
+/* Mobile: vienmēr 8 kolonnas iekš 100% platuma (neizlien ārā) */
+@media (max-width: 520px){
+  .code-boxes{
+    width:100%;
+    display:grid;
+    grid-template-columns: repeat(8, minmax(0, 1fr));
+    gap:6px;
+  }
+  .code-boxes input{
+    width:100%;
+    flex:initial;
+    height:44px;
+    font-size:16px;
+  }
+}
+@media (max-width: 380px){
+  .code-boxes{ gap:5px; }
+  .code-boxes input{ height:42px; font-size:15px; border-radius:10px; }
+}
 
     /* ===== Address blocks ===== */
     .address-block{
