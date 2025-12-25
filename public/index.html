@@ -354,9 +354,9 @@
 
 <script>
   const CFG = {
-    abonRegex: /^\d{8}$/,
-    meterNrRegex: /^\d+$/,
-    readingRegex: /^\d+([.,]\d{1,2})?$/,
+    abonRegex: /^\\d{8}$/,
+    meterNrRegex: /^\\d+$/,
+    readingRegex: /^\\d+([.,]\\d{1,2})?$/,
     addrMinChars: 1,
     addrLimit: 12,
     // first meter row cannot be deleted
@@ -412,8 +412,34 @@
     document.getElementById('submitModalRetryBtn').style.display = 'inline-block';
   }
 
+  // notīra visu formu (abonents + adreses + skaitītāji)
+  function resetFormToEmpty() {
+    // abonenta kods
+    $$("#abonentaCodeBoxes input").forEach(inp => inp.value = "");
+
+    // adreses/skaitītāji: atstājam 1 tukšu adresi ar 1 skaitītāju
+    const host = document.getElementById("addresses");
+    host.innerHTML = "";
+    host.appendChild(createAddressBlock());
+    renumberAddresses();
+
+    // atjauno submit stāvokli
+    refreshAll();
+
+    // fokusē pirmo ciparu
+    const first = document.querySelector("#abonentaCodeBoxes input");
+    if (first) first.focus();
+  }
+
   document.getElementById('submitModalCloseBtn').addEventListener('click', () => {
     modalHide();
+
+    // Pēc veiksmīgas iesniegšanas forma jau ir tukša,
+    // tāpēc poga paliks "disabled" līdz lietotājs ievadīs jaunus datus.
+    const btn = document.getElementById('submitBtn');
+    btn.classList.remove('disabled');
+    btn.setAttribute('aria-disabled', 'false');
+    refreshAll();
   });
 
   document.getElementById('submitModalRetryBtn').addEventListener('click', () => {
@@ -421,6 +447,7 @@
     const btn = document.getElementById('submitBtn');
     btn.classList.remove('disabled');
     btn.setAttribute('aria-disabled', 'false');
+    refreshAll();
   });
 
   async function refreshWindowNotice() {
@@ -453,7 +480,7 @@
       const inp = el("input", { type:"text", inputmode:"numeric", maxlength:"1", "aria-label":`Cipars ${i+1}` });
 
       inp.addEventListener("input", () => {
-        inp.value = inp.value.replace(/\D/g, "").slice(0,1);
+        inp.value = inp.value.replace(/\\D/g, "").slice(0,1);
         if (inp.value && i < 7) host.children[i+1].focus();
         refreshAll();
       });
@@ -465,7 +492,7 @@
       inp.addEventListener("paste", (e) => {
         e.preventDefault();
         const text = (e.clipboardData || window.clipboardData).getData("text");
-        const digits = (text || "").replace(/\D/g, "").slice(0,8);
+        const digits = (text || "").replace(/\\D/g, "").slice(0,8);
         for (let j=0; j<8; j++) host.children[j].value = digits[j] || "";
         (host.children[Math.min(digits.length,7)] || host.children[7]).focus();
         refreshAll();
@@ -758,7 +785,7 @@
     btn.classList.add("disabled");
     btn.setAttribute("aria-disabled", "true");
 
-    // stable id per attempt (prevents duplicates if user clicks fast / retries)
+    // stable id per attempt
     const KEY = "client_submission_id_current";
     let cid = sessionStorage.getItem(KEY);
     if (!cid) {
@@ -791,14 +818,12 @@
         body: JSON.stringify(payload)
       });
 
-      // try parse json
       let j = null;
       try { j = await res.json(); } catch { j = null; }
 
       if (!res.ok || !j || j.ok !== true) {
         const msg = (j && j.error) ? j.error : "Neizdevās nosūtīt. Lūdzu, mēģini vēlreiz.";
         modalStateError(msg);
-        // allow retry
         btn.classList.remove("disabled");
         btn.setAttribute("aria-disabled", "false");
         return;
@@ -806,8 +831,12 @@
 
       // success
       sessionStorage.removeItem(KEY);
+
+      // ✅ ŠEIT: notīram visu formu uzreiz
+      resetFormToEmpty();
+
       modalStateSuccess();
-      // keep submit button disabled until user closes modal (prevents immediate re-submit)
+      // poga paliek disabled līdz AIZVĒRT, bet forma ir tukša, tāpēc atkārtots submit prasa jaunu ievadi
     } catch (e) {
       modalStateError("Savienojuma problēma. Lūdzu, mēģini vēlreiz.");
       btn.classList.remove("disabled");
